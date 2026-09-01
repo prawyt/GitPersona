@@ -142,6 +142,31 @@ pub fn inspect(
         git.get("user.email", true)?.as_deref(),
         "Git author email",
     );
+    if let Some(signing_key) = &profile.signing_key {
+        check_equal(
+            &mut checks,
+            "signing_key",
+            signing_key,
+            git.get("user.signingKey", true)?.as_deref(),
+            "commit signing key",
+        );
+        check_equal(
+            &mut checks,
+            "signing_format",
+            profile.signing_format.as_git_value(),
+            git.get("gpg.format", true)?.as_deref(),
+            "commit signing format",
+        );
+        if profile.require_signing {
+            check_equal(
+                &mut checks,
+                "commit_signing",
+                "true",
+                git.get("commit.gpgSign", true)?.as_deref(),
+                "required commit signing",
+            );
+        }
+    }
 
     match &remote {
         None => checks.push(item(

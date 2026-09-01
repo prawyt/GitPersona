@@ -1,4 +1,6 @@
+use crate::config::SigningFormat;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -31,6 +33,9 @@ pub enum Command {
         command: HooksCommand,
     },
     Doctor,
+    Completions {
+        shell: Shell,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -91,6 +96,16 @@ pub struct ProfileMutationArgs {
     pub clear_ssh_key: bool,
     #[arg(long)]
     pub clear_allowed_owners: bool,
+    #[arg(long)]
+    pub signing_key: Option<String>,
+    #[arg(long, value_enum)]
+    pub signing_format: Option<SigningFormat>,
+    #[arg(long, conflicts_with = "no_require_signing")]
+    pub require_signing: bool,
+    #[arg(long, conflicts_with = "require_signing")]
+    pub no_require_signing: bool,
+    #[arg(long)]
+    pub clear_signing_key: bool,
 }
 
 #[derive(Debug, Args)]

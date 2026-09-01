@@ -1,4 +1,5 @@
 use crate::error::GitPersonaError;
+use clap::ValueEnum;
 use directories::{BaseDirs, ProjectDirs};
 use fs2::FileExt;
 use regex::Regex;
@@ -38,6 +39,33 @@ pub struct Profile {
     pub ssh_key: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allowed_owners: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signing_key: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default_signing_format")]
+    pub signing_format: SigningFormat,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub require_signing: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum SigningFormat {
+    #[default]
+    Openpgp,
+    Ssh,
+}
+
+impl SigningFormat {
+    pub fn as_git_value(self) -> &'static str {
+        match self {
+            Self::Openpgp => "openpgp",
+            Self::Ssh => "ssh",
+        }
+    }
+}
+
+fn is_default_signing_format(value: &SigningFormat) -> bool {
+    *value == SigningFormat::default()
 }
 
 fn default_hostname() -> String {
@@ -70,6 +98,18 @@ impl Profile {
         {
             return Err(GitPersonaError::usage("allowed owners cannot be empty"));
         }
+        if self
+            .signing_key
+            .as_ref()
+            .is_some_and(|key| key.trim().is_empty())
+        {
+            return Err(GitPersonaError::usage("signing key cannot be empty"));
+        }
+        if self.require_signing && self.signing_key.is_none() {
+            return Err(GitPersonaError::usage(
+                "required commit signing needs a signing key",
+            ));
+        }
         Ok(())
     }
 
@@ -81,6 +121,19 @@ impl Profile {
                     "SSH key does not exist or is not a file: {}",
                     expanded.display()
                 )));
+            }
+        }
+        if self.signing_format == SigningFormat::Ssh {
+            if let Some(key) = &self.signing_key {
+                if !key.starts_with("key::") {
+                    let expanded = expand_path(Path::new(key))?;
+                    if !expanded.is_file() {
+                        return Err(GitPersonaError::usage(format!(
+                            "SSH signing key does not exist or is not a file: {}",
+                            expanded.display()
+                        )));
+                    }
+                }
             }
         }
         Ok(())
@@ -242,6 +295,9 @@ mod tests {
                         hostname: "github.com".into(),
                         ssh_key: None,
                         allowed_owners: vec!["Org".into()],
+                        signing_key: None,
+                        signing_format: SigningFormat::Openpgp,
+                        require_signing: false,
                     },
                 );
                 Ok(())
