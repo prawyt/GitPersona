@@ -12,6 +12,7 @@ use crate::{
     hooks::HookManager,
     process::{Runner, os_args},
 };
+use clap::CommandFactory;
 use dialoguer::{Confirm, Input};
 use std::{
     io::{self, IsTerminal},
@@ -34,6 +35,10 @@ pub fn run(cli: Cli, runner: &dyn Runner) -> Result<u8, GitPersonaError> {
         Command::Check(args) => inspect(args, &store, runner, true),
         Command::Hooks { command } => hooks(command, runner),
         Command::Doctor => doctor(&store, runner),
+        Command::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "gitpersona", &mut io::stdout());
+            Ok(0)
+        }
     }
 }
 
@@ -103,7 +108,7 @@ fn profile_command(command: ProfileCommand, store: &ConfigStore) -> Result<u8, G
                 );
             } else {
                 println!(
-                    "Profile:        {name}\nGitHub user:    {}\nHostname:       {}\nGit author:     {}\nGit email:      {}\nSSH key:        {}\nAllowed owners: {}",
+                    "Profile:        {name}\nGitHub user:    {}\nHostname:       {}\nGit author:     {}\nGit email:      {}\nSSH key:        {}\nAllowed owners: {}\nSigning key:    {}\nSigning format: {}\nRequire signing: {}",
                     profile.github_user,
                     profile.hostname,
                     profile.git_name,
@@ -116,7 +121,10 @@ fn profile_command(command: ProfileCommand, store: &ConfigStore) -> Result<u8, G
                         "(any)".into()
                     } else {
                         profile.allowed_owners.join(", ")
-                    }
+                    },
+                    profile.signing_key.as_deref().unwrap_or("(none)"),
+                    profile.signing_format.as_git_value(),
+                    profile.require_signing,
                 );
             }
             Ok(0)
@@ -200,6 +208,24 @@ fn profile_from_args(
     } else {
         args.allowed_owners.clone()
     };
+    let signing_key = if args.clear_signing_key {
+        None
+    } else {
+        args.signing_key
+            .clone()
+            .or_else(|| old.and_then(|profile| profile.signing_key.clone()))
+    };
+    let signing_format = args
+        .signing_format
+        .or_else(|| old.map(|profile| profile.signing_format))
+        .unwrap_or_default();
+    let require_signing = if args.require_signing {
+        true
+    } else if args.no_require_signing || args.clear_signing_key {
+        false
+    } else {
+        old.is_some_and(|profile| profile.require_signing)
+    };
     Ok(Profile {
         github_user,
         git_name,
@@ -207,6 +233,9 @@ fn profile_from_args(
         hostname,
         ssh_key,
         allowed_owners,
+        signing_key,
+        signing_format,
+        require_signing,
     })
 }
 

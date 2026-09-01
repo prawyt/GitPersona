@@ -43,6 +43,41 @@ fn profile_add_and_list_json() {
 }
 
 #[test]
+fn profile_signing_and_completions_are_exposed() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args([
+            "profile",
+            "add",
+            "signed",
+            "--github-user",
+            "alice",
+            "--git-name",
+            "Alice",
+            "--git-email",
+            "alice@example.com",
+            "--signing-key",
+            "ABC123",
+            "--require-signing",
+        ])
+        .assert()
+        .success();
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["profile", "show", "signed", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"require_signing\": true"));
+    cargo_bin_cmd!()
+        .args(["completions", "bash"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("gitpersona"));
+}
+
+#[test]
 fn bind_and_unbind_restore_original_identity() {
     let temp = tempfile::tempdir().unwrap();
     let repo = temp.path().join("repo");
@@ -114,6 +149,65 @@ fn bind_and_unbind_restore_original_identity() {
             .unwrap()
             .success()
     );
+}
+
+#[test]
+fn bind_and_unbind_restore_signing_configuration() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = initialized_repo(temp.path());
+    let config = temp.path().join("config.toml");
+    for (key, value) in [
+        ("user.signingKey", "OLDKEY"),
+        ("gpg.format", "ssh"),
+        ("commit.gpgSign", "false"),
+    ] {
+        assert!(
+            Command::new("git")
+                .args(["config", "--local", key, value])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .args([
+            "profile",
+            "add",
+            "signed",
+            "--github-user",
+            "alice",
+            "--git-name",
+            "Alice",
+            "--git-email",
+            "alice@example.com",
+            "--signing-key",
+            "NEWKEY",
+            "--require-signing",
+        ])
+        .assert()
+        .success();
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["bind", "signed"])
+        .assert()
+        .success();
+    assert_eq!(git_value(&repo, "user.signingKey"), "NEWKEY");
+    assert_eq!(git_value(&repo, "gpg.format"), "openpgp");
+    assert_eq!(git_value(&repo, "commit.gpgSign"), "true");
+
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .arg("unbind")
+        .assert()
+        .success();
+    assert_eq!(git_value(&repo, "user.signingKey"), "OLDKEY");
+    assert_eq!(git_value(&repo, "gpg.format"), "ssh");
+    assert_eq!(git_value(&repo, "commit.gpgSign"), "false");
 }
 
 #[test]

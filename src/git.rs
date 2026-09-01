@@ -18,6 +18,9 @@ const MANAGED_KEYS: &[&str] = &[
     "user.name",
     "user.email",
     "core.sshCommand",
+    "user.signingKey",
+    "gpg.format",
+    "commit.gpgSign",
 ];
 const BACKUP_KEYS: &[(&str, &str, &str)] = &[
     (
@@ -34,6 +37,21 @@ const BACKUP_KEYS: &[(&str, &str, &str)] = &[
         "core.sshCommand",
         "gitpersona.backupSshCommandPresent",
         "gitpersona.backupSshCommand",
+    ),
+    (
+        "user.signingKey",
+        "gitpersona.backupSigningKeyPresent",
+        "gitpersona.backupSigningKey",
+    ),
+    (
+        "gpg.format",
+        "gitpersona.backupSigningFormatPresent",
+        "gitpersona.backupSigningFormat",
+    ),
+    (
+        "commit.gpgSign",
+        "gitpersona.backupCommitSigningPresent",
+        "gitpersona.backupCommitSigning",
     ),
 ];
 
@@ -216,6 +234,21 @@ impl<'a> Git<'a> {
             return Ok(self.get("core.sshCommand", true)?.as_deref()
                 != Some(Self::expected_ssh_command(profile)?.as_str()));
         }
+        if let Some(key) = &profile.signing_key {
+            if self.get("user.signingKey", true)?.as_deref() != Some(key.as_str())
+                || self.get("gpg.format", true)?.as_deref()
+                    != Some(profile.signing_format.as_git_value())
+                || self.get("commit.gpgSign", true)?.as_deref()
+                    != profile.require_signing.then_some("true")
+            {
+                return Ok(true);
+            }
+        } else if self.get("user.signingKey", true)?.is_some()
+            || self.get("gpg.format", true)?.is_some()
+            || self.get("commit.gpgSign", true)?.is_some()
+        {
+            return Ok(true);
+        }
         Ok(false)
     }
 
@@ -246,8 +279,8 @@ impl<'a> Git<'a> {
         let all_keys = transaction_keys();
         let snapshot = self.snapshot(&all_keys)?;
         let result = (|| {
-            if self.get("gitpersona.version", true)?.is_none() {
-                for (managed, present_key, value_key) in BACKUP_KEYS {
+            for (managed, present_key, value_key) in BACKUP_KEYS {
+                if self.get(present_key, true)?.is_none() {
                     let value = self.get(managed, true)?;
                     self.set(present_key, if value.is_some() { "true" } else { "false" })?;
                     if let Some(value) = value {
@@ -258,13 +291,26 @@ impl<'a> Git<'a> {
                 }
             }
             self.set("gitpersona.profile", profile_name)?;
-            self.set("gitpersona.version", "1")?;
+            self.set("gitpersona.version", "2")?;
             self.set("user.name", &profile.git_name)?;
             self.set("user.email", &profile.git_email)?;
             if matches!(remote.map(|r| r.protocol), Some(RemoteProtocol::Ssh)) {
                 self.set("core.sshCommand", &Self::expected_ssh_command(profile)?)?;
             } else {
                 self.unset("core.sshCommand")?;
+            }
+            if let Some(key) = &profile.signing_key {
+                self.set("user.signingKey", key)?;
+                self.set("gpg.format", profile.signing_format.as_git_value())?;
+                if profile.require_signing {
+                    self.set("commit.gpgSign", "true")?;
+                } else {
+                    self.unset("commit.gpgSign")?;
+                }
+            } else {
+                self.unset("user.signingKey")?;
+                self.unset("gpg.format")?;
+                self.unset("commit.gpgSign")?;
             }
             Ok(())
         })();
@@ -368,6 +414,9 @@ mod tests {
             hostname: "github.com".into(),
             ssh_key: Some(key.clone()),
             allowed_owners: vec![],
+            signing_key: None,
+            signing_format: crate::config::SigningFormat::Openpgp,
+            require_signing: false,
         };
         let command = Git::expected_ssh_command(&profile).unwrap();
         assert!(command.contains("\""));

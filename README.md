@@ -90,6 +90,20 @@ git_email = "alice@company.example"
 hostname = "github.com"
 ssh_key = "~/.ssh/id_ed25519_company"
 allowed_owners = ["company-name"]
+signing_key = "ABC123"
+signing_format = "openpgp"
+require_signing = true
+```
+
+Profiles can require OpenPGP or SSH commit signing. Binding snapshots and applies
+`user.signingKey`, `gpg.format`, and `commit.gpgSign`; unbinding restores their
+original repository-local values exactly.
+
+Generate shell completions without modifying shell configuration:
+
+```console
+gitpersona completions bash > gitpersona.bash
+gitpersona completions powershell > _gitpersona.ps1
 ```
 
 Repository binding and rollback metadata live only in local Git configuration. `gitpersona unbind` restores the exact values that existed before the first bind.
