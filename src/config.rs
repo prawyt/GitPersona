@@ -17,6 +17,8 @@ pub struct Config {
     pub schema_version: u32,
     #[serde(default)]
     pub profiles: BTreeMap<String, Profile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub directories: Vec<DirectoryRule>,
 }
 
 impl Default for Config {
@@ -24,8 +26,15 @@ impl Default for Config {
         Self {
             schema_version: 1,
             profiles: BTreeMap::new(),
+            directories: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DirectoryRule {
+    pub profile: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -224,6 +233,19 @@ impl ConfigStore {
         for (name, profile) in &config.profiles {
             validate_profile_name(name)?;
             profile.validate()?;
+        }
+        for rule in &config.directories {
+            if !config.profiles.contains_key(&rule.profile) {
+                return Err(GitPersonaError::usage(format!(
+                    "directory rule references missing profile '{}'",
+                    rule.profile
+                )));
+            }
+            if rule.path.as_os_str().is_empty() {
+                return Err(GitPersonaError::usage(
+                    "directory rule path cannot be empty",
+                ));
+            }
         }
         Ok(config)
     }
