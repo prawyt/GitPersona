@@ -44,6 +44,18 @@ gitpersona status
 gitpersona check
 ```
 
+Clone and bind a repository in one identity-safe operation. GitPersona uses SSH
+when the profile has an SSH key and HTTPS otherwise; override that choice with
+`--protocol`:
+
+```console
+gitpersona clone work company-name/device-firmware
+gitpersona clone personal alice/project ./project --protocol https
+```
+
+GitPersona validates the host and owner policy before cloning, switches GitHub
+CLI explicitly, and restores the previous account if cloning or binding fails.
+
 For HTTPS remotes, configure GitHub CLI as Git's credential helper:
 
 ```console
@@ -103,4 +115,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations.
 ## License
 
 MIT
-

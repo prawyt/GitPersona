@@ -4,6 +4,7 @@ use crate::{
         BindArgs, Cli, Command, HookMode, HooksCommand, InspectArgs, ProfileCommand,
         ProfileMutationArgs,
     },
+    clone_repo,
     config::{ConfigStore, Profile, validate_profile_name},
     error::GitPersonaError,
     git::Git,
@@ -22,6 +23,7 @@ pub fn run(cli: Cli, runner: &dyn Runner) -> Result<u8, GitPersonaError> {
     match cli.command {
         Command::Profile { command } => profile_command(command, &store),
         Command::Use { profile } => use_profile(&profile, &store, runner),
+        Command::Clone(args) => clone_repo::execute(args, &store, runner),
         Command::Bind(args) => bind(args, &store, runner),
         Command::Unbind => {
             Git::new(runner).unbind()?;

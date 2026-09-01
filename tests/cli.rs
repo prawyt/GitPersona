@@ -9,6 +9,7 @@ fn help_lists_primary_commands() {
         .assert()
         .success()
         .stdout(predicate::str::contains("profile"))
+        .stdout(predicate::str::contains("clone"))
         .stdout(predicate::str::contains("bind"))
         .stdout(predicate::str::contains("hooks"));
 }

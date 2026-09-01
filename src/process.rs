@@ -1,6 +1,7 @@
 use crate::error::GitPersonaError;
 use std::{
     ffi::OsString,
+    path::Path,
     process::{Command, Stdio},
     time::Duration,
 };
@@ -29,6 +30,17 @@ pub trait Runner: Send + Sync {
         args: &[OsString],
         timeout: Duration,
     ) -> Result<ProcessOutput, GitPersonaError>;
+
+    fn run_in(
+        &self,
+        program: &str,
+        args: &[OsString],
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<ProcessOutput, GitPersonaError> {
+        let _ = cwd;
+        self.run(program, args, timeout)
+    }
 }
 
 pub struct SystemRunner;
@@ -40,35 +52,56 @@ impl Runner for SystemRunner {
         args: &[OsString],
         timeout: Duration,
     ) -> Result<ProcessOutput, GitPersonaError> {
-        let mut child = Command::new(program)
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                GitPersonaError::dependency(format!("could not run {program}: {error}"))
-            })?;
-        let status = child.wait_timeout(timeout).map_err(|error| {
-            GitPersonaError::dependency(format!("could not wait for {program}: {error}"))
-        })?;
-        if status.is_none() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Ok(ProcessOutput {
-                code: None,
-                stdout: String::new(),
-                stderr: format!("{program} timed out after {} seconds", timeout.as_secs()),
-            });
-        }
-        let output = child.wait_with_output().map_err(|error| {
-            GitPersonaError::dependency(format!("could not collect {program} output: {error}"))
-        })?;
-        Ok(ProcessOutput {
-            code: output.status.code(),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        })
+        run_command(Command::new(program), program, args, timeout)
     }
+
+    fn run_in(
+        &self,
+        program: &str,
+        args: &[OsString],
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<ProcessOutput, GitPersonaError> {
+        let mut command = Command::new(program);
+        command.current_dir(cwd);
+        run_command(command, program, args, timeout)
+    }
+}
+
+fn run_command(
+    mut command: Command,
+    program: &str,
+    args: &[OsString],
+    timeout: Duration,
+) -> Result<ProcessOutput, GitPersonaError> {
+    let mut child = command
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| {
+            GitPersonaError::dependency(format!("could not run {program}: {error}"))
+        })?;
+    let status = child.wait_timeout(timeout).map_err(|error| {
+        GitPersonaError::dependency(format!("could not wait for {program}: {error}"))
+    })?;
+    if status.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ok(ProcessOutput {
+            code: None,
+            stdout: String::new(),
+            stderr: format!("{program} timed out after {} seconds", timeout.as_secs()),
+        });
+    }
+    let output = child.wait_with_output().map_err(|error| {
+        GitPersonaError::dependency(format!("could not collect {program} output: {error}"))
+    })?;
+    Ok(ProcessOutput {
+        code: output.status.code(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
 }
 
 pub fn os_args(values: &[&str]) -> Vec<OsString> {
