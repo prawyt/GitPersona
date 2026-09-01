@@ -21,6 +21,7 @@ pub enum Command {
     Use {
         profile: String,
     },
+    Clone(CloneArgs),
     Bind(BindArgs),
     Unbind,
     Status(InspectArgs),
@@ -30,6 +31,25 @@ pub enum Command {
         command: HooksCommand,
     },
     Doctor,
+}
+
+#[derive(Debug, Args)]
+pub struct CloneArgs {
+    pub profile: String,
+    pub repository: String,
+    pub directory: Option<PathBuf>,
+    #[arg(long, value_enum)]
+    pub protocol: Option<CloneProtocol>,
+    #[arg(long, default_value = "origin")]
+    pub remote: String,
+    #[arg(long)]
+    pub no_switch: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CloneProtocol {
+    Ssh,
+    Https,
 }
 
 #[derive(Debug, Subcommand)]

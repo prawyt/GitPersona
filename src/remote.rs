@@ -11,6 +11,31 @@ pub enum RemoteProtocol {
     Http,
 }
 
+impl RemoteInfo {
+    pub fn as_url(&self, protocol: RemoteProtocol, hostname: &str) -> String {
+        match protocol {
+            RemoteProtocol::Ssh => format!("git@{hostname}:{}/{}.git", self.owner, self.repository),
+            RemoteProtocol::Https => {
+                format!("https://{hostname}/{}/{}.git", self.owner, self.repository)
+            }
+            RemoteProtocol::Http => {
+                format!("http://{hostname}/{}/{}.git", self.owner, self.repository)
+            }
+        }
+    }
+}
+
+pub fn parse_repository(input: &str, hostname: &str) -> Result<RemoteInfo, GitPersonaError> {
+    if input.contains("://")
+        || Regex::new(r"^(?:[^@]+@)?[^:]+:.+$")
+            .expect("valid regex")
+            .is_match(input)
+    {
+        return parse_remote(input);
+    }
+    build(input, RemoteProtocol::Https, hostname.to_string(), input)
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct RemoteInfo {
     pub url: String,
@@ -72,6 +97,16 @@ fn build(
     let repository = parts
         .next()
         .ok_or_else(|| GitPersonaError::usage("remote URL has no repository"))?;
+    if parts.next().is_some()
+        || owner == "."
+        || owner == ".."
+        || repository == "."
+        || repository == ".."
+    {
+        return Err(GitPersonaError::usage(
+            "repository must identify exactly one owner and repository",
+        ));
+    }
     Ok(RemoteInfo {
         url: original.to_string(),
         protocol,
@@ -96,5 +131,15 @@ mod tests {
             assert_eq!(remote.owner, "Org");
             assert_eq!(remote.repository, "repo");
         }
+    }
+
+    #[test]
+    fn builds_protocol_specific_urls() {
+        let remote = parse_repository("Org/repo", "github.example").unwrap();
+        assert_eq!(
+            remote.as_url(RemoteProtocol::Ssh, "github.example"),
+            "git@github.example:Org/repo.git"
+        );
+        assert!(parse_repository("Org/group/repo", "github.com").is_err());
     }
 }
