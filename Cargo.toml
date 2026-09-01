@@ -1,6 +1,6 @@
 [package]
 name = "gitpersona"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "A safety-first local GitHub identity manager"
 license = "MIT"
@@ -8,6 +8,7 @@ rust-version = "1.85"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4.5"
 dialoguer = "0.12"
 directories = "6.0"
 fs2 = "0.4"

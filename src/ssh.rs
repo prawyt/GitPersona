@@ -74,6 +74,9 @@ mod tests {
             hostname: "github.com".into(),
             ssh_key: Some(key),
             allowed_owners: vec![],
+            signing_key: None,
+            signing_format: crate::config::SigningFormat::Openpgp,
+            require_signing: false,
         };
         assert_eq!(
             verify(&Fake, &profile).unwrap(),
