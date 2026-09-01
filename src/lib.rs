@@ -1,6 +1,7 @@
 pub mod app;
 pub mod check;
 pub mod cli;
+pub mod clone_repo;
 pub mod config;
 pub mod error;
 pub mod git;

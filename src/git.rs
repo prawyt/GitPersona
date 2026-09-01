@@ -4,7 +4,12 @@ use crate::{
     process::{Runner, os_args},
     remote::{RemoteInfo, RemoteProtocol, parse_remote},
 };
-use std::{collections::BTreeMap, ffi::OsString, path::PathBuf, time::Duration};
+use std::{
+    collections::BTreeMap,
+    ffi::OsString,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 const MANAGED_KEYS: &[&str] = &[
@@ -34,15 +39,26 @@ const BACKUP_KEYS: &[(&str, &str, &str)] = &[
 
 pub struct Git<'a> {
     runner: &'a dyn Runner,
+    cwd: Option<PathBuf>,
 }
 
 impl<'a> Git<'a> {
     pub fn new(runner: &'a dyn Runner) -> Self {
-        Self { runner }
+        Self { runner, cwd: None }
+    }
+
+    pub fn at(runner: &'a dyn Runner, cwd: impl AsRef<Path>) -> Self {
+        Self {
+            runner,
+            cwd: Some(cwd.as_ref().to_path_buf()),
+        }
     }
 
     fn run(&self, args: &[OsString]) -> Result<crate::process::ProcessOutput, GitPersonaError> {
-        self.runner.run("git", args, TIMEOUT)
+        match &self.cwd {
+            Some(cwd) => self.runner.run_in("git", args, cwd, TIMEOUT),
+            None => self.runner.run("git", args, TIMEOUT),
+        }
     }
 
     pub fn ensure_repo(&self) -> Result<PathBuf, GitPersonaError> {
