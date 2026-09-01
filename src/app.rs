@@ -2,10 +2,11 @@ use crate::{
     check::{self, CheckOptions},
     cli::{
         BindArgs, Cli, Command, HookMode, HooksCommand, InspectArgs, ProfileCommand,
-        ProfileMutationArgs,
+        ProfileImportArgs, ProfileMutationArgs,
     },
     clone_repo,
     config::{ConfigStore, Profile, validate_profile_name},
+    directory,
     error::GitPersonaError,
     git::Git,
     github::GitHub,
@@ -22,7 +23,7 @@ use std::{
 pub fn run(cli: Cli, runner: &dyn Runner) -> Result<u8, GitPersonaError> {
     let store = ConfigStore::discover()?;
     match cli.command {
-        Command::Profile { command } => profile_command(command, &store),
+        Command::Profile { command } => profile_command(command, &store, runner),
         Command::Use { profile } => use_profile(&profile, &store, runner),
         Command::Clone(args) => clone_repo::execute(args, &store, runner),
         Command::Bind(args) => bind(args, &store, runner),
@@ -34,6 +35,7 @@ pub fn run(cli: Cli, runner: &dyn Runner) -> Result<u8, GitPersonaError> {
         Command::Status(args) => inspect(args, &store, runner, false),
         Command::Check(args) => inspect(args, &store, runner, true),
         Command::Hooks { command } => hooks(command, runner),
+        Command::Directory { command } => directory::execute(command, &store, runner),
         Command::Doctor => doctor(&store, runner),
         Command::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "gitpersona", &mut io::stdout());
@@ -42,7 +44,11 @@ pub fn run(cli: Cli, runner: &dyn Runner) -> Result<u8, GitPersonaError> {
     }
 }
 
-fn profile_command(command: ProfileCommand, store: &ConfigStore) -> Result<u8, GitPersonaError> {
+fn profile_command(
+    command: ProfileCommand,
+    store: &ConfigStore,
+    runner: &dyn Runner,
+) -> Result<u8, GitPersonaError> {
     match command {
         ProfileCommand::Add(args) => {
             validate_profile_name(&args.name)?;
@@ -62,6 +68,7 @@ fn profile_command(command: ProfileCommand, store: &ConfigStore) -> Result<u8, G
             println!("Profile '{}' added.", args.name);
             Ok(0)
         }
+        ProfileCommand::Import(args) => import_profile(args, store, runner),
         ProfileCommand::Edit(args) => {
             validate_profile_name(&args.name)?;
             store.update(|config| {
@@ -78,6 +85,7 @@ fn profile_command(command: ProfileCommand, store: &ConfigStore) -> Result<u8, G
                 "Profile '{}' updated. Rebind repositories to apply changed settings.",
                 args.name
             );
+            directory::sync_profile(&args.name, store)?;
             Ok(0)
         }
         ProfileCommand::List { json } => {
@@ -136,6 +144,11 @@ fn profile_command(command: ProfileCommand, store: &ConfigStore) -> Result<u8, G
                     "profile '{name}' does not exist"
                 )));
             }
+            if config.directories.iter().any(|rule| rule.profile == name) {
+                return Err(GitPersonaError::usage(format!(
+                    "profile '{name}' has directory rules; remove them first"
+                )));
+            }
             if !yes {
                 if !io::stdin().is_terminal() {
                     return Err(GitPersonaError::usage(
@@ -161,6 +174,76 @@ fn profile_command(command: ProfileCommand, store: &ConfigStore) -> Result<u8, G
             Ok(0)
         }
     }
+}
+
+fn import_profile(
+    args: ProfileImportArgs,
+    store: &ConfigStore,
+    runner: &dyn Runner,
+) -> Result<u8, GitPersonaError> {
+    validate_profile_name(&args.name)?;
+    if store.load()?.profiles.contains_key(&args.name) {
+        return Err(GitPersonaError::usage(format!(
+            "profile '{}' already exists",
+            args.name
+        )));
+    }
+    let git = Git::new(runner);
+    git.ensure_repo()?;
+    let remote = git.remote(&args.remote)?.ok_or_else(|| {
+        GitPersonaError::usage(format!("remote '{}' is not configured", args.remote))
+    })?;
+    let required_git = |key: &str, label: &str| {
+        git.get(key, false)?.ok_or_else(|| {
+            GitPersonaError::usage(format!("cannot import profile: {label} is not configured"))
+        })
+    };
+    let github_user = GitHub::new(runner)
+        .active_account(&remote.hostname)?
+        .ok_or_else(|| {
+            GitPersonaError::usage(format!(
+                "cannot import profile: GitHub CLI has no active account on {}",
+                remote.hostname
+            ))
+        })?;
+    let signing_format = match git.get("gpg.format", false)?.as_deref() {
+        Some("ssh") => crate::config::SigningFormat::Ssh,
+        _ => crate::config::SigningFormat::Openpgp,
+    };
+    let profile = Profile {
+        github_user,
+        git_name: required_git("user.name", "Git author name")?,
+        git_email: required_git("user.email", "Git author email")?,
+        hostname: remote.hostname,
+        ssh_key: None,
+        allowed_owners: if args.no_owner {
+            Vec::new()
+        } else {
+            vec![remote.owner]
+        },
+        signing_key: git.get("user.signingKey", false)?,
+        signing_format,
+        require_signing: git
+            .get("commit.gpgSign", false)?
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+    };
+    profile.validate()?;
+    profile.validate_local_resources()?;
+    store.update(|config| {
+        if config.profiles.contains_key(&args.name) {
+            return Err(GitPersonaError::usage(format!(
+                "profile '{}' already exists",
+                args.name
+            )));
+        }
+        config.profiles.insert(args.name.clone(), profile);
+        Ok(())
+    })?;
+    println!(
+        "Profile '{}' imported from the current repository. SSH keys are never inferred; add one explicitly if needed.",
+        args.name
+    );
+    Ok(0)
 }
 
 fn profile_from_args(

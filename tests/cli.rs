@@ -1,5 +1,7 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
+#[cfg(not(windows))]
+use std::env;
 use std::{fs, process::Command};
 
 #[test]
@@ -11,6 +13,7 @@ fn help_lists_primary_commands() {
         .stdout(predicate::str::contains("profile"))
         .stdout(predicate::str::contains("clone"))
         .stdout(predicate::str::contains("bind"))
+        .stdout(predicate::str::contains("directory"))
         .stdout(predicate::str::contains("hooks"));
 }
 
@@ -420,6 +423,122 @@ fn deleted_key_does_not_make_config_unreadable() {
         .stdout(predicate::str::contains("profile work: unavailable"));
 }
 
+#[test]
+fn directory_rule_applies_profile_through_isolated_global_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let global = temp.path().join("global.gitconfig");
+    let projects = temp.path().join("projects");
+    let repo = projects.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    add_profile(&repo, &config);
+
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .args(["directory", "add", "work", projects.to_str().unwrap()])
+        .assert()
+        .success();
+    let output = Command::new("git")
+        .args(["config", "--get", "user.email"])
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "work@example.com"
+    );
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .args(["check", "--hook", "pre-commit"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("repository binding is present"));
+
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .args(["directory", "remove", projects.to_str().unwrap()])
+        .assert()
+        .success();
+    let output = Command::new("git")
+        .args(["config", "--global", "--get-regexp", "^includeIf"])
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+}
+
+#[test]
+#[cfg(not(windows))]
+fn profile_import_reads_repository_and_structured_gh_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = initialized_repo(temp.path());
+    let config = temp.path().join("config.toml");
+    for (key, value) in [
+        ("user.name", "Imported User"),
+        ("user.email", "imported@example.com"),
+    ] {
+        assert!(
+            Command::new("git")
+                .args(["config", "--local", key, value])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    assert!(
+        Command::new("git")
+            .args([
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/ImportedOrg/project.git",
+            ])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let fake_bin = fake_gh(temp.path());
+    let path = env::join_paths(
+        std::iter::once(fake_bin).chain(env::split_paths(&env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("PATH", path)
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["profile", "import", "imported"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("SSH keys are never inferred"));
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["profile", "show", "imported", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Imported User"))
+        .stdout(predicate::str::contains("imported-user"))
+        .stdout(predicate::str::contains("ImportedOrg"));
+}
+
 fn initialized_repo(parent: &std::path::Path) -> std::path::PathBuf {
     let repo = parent.join("repo");
     fs::create_dir(&repo).unwrap();
@@ -461,4 +580,19 @@ fn git_value(repo: &std::path::Path, key: &str) -> String {
         .unwrap();
     assert!(output.status.success());
     String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+#[cfg(not(windows))]
+fn fake_gh(parent: &std::path::Path) -> std::path::PathBuf {
+    let bin = parent.join("fake-bin");
+    fs::create_dir(&bin).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    let path = bin.join("gh");
+    fs::write(
+        &path,
+        "#!/bin/sh\nprintf '%s\\n' '{\"hosts\":{\"github.com\":[{\"login\":\"imported-user\",\"active\":true,\"state\":\"success\"}]}}'\n",
+    )
+    .unwrap();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    bin
 }
