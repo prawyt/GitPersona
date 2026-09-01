@@ -32,6 +32,10 @@ pub enum Command {
         #[command(subcommand)]
         command: HooksCommand,
     },
+    Directory {
+        #[command(subcommand)]
+        command: DirectoryCommand,
+    },
     Doctor,
     Completions {
         shell: Shell,
@@ -60,6 +64,7 @@ pub enum CloneProtocol {
 #[derive(Debug, Subcommand)]
 pub enum ProfileCommand {
     Add(ProfileMutationArgs),
+    Import(ProfileImportArgs),
     Edit(ProfileMutationArgs),
     List {
         #[arg(long)]
@@ -74,6 +79,33 @@ pub enum ProfileCommand {
         name: String,
         #[arg(long)]
         yes: bool,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct ProfileImportArgs {
+    pub name: String,
+    #[arg(long, default_value = "origin")]
+    pub remote: String,
+    #[arg(long)]
+    pub no_owner: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DirectoryCommand {
+    Add {
+        profile: String,
+        path: PathBuf,
+    },
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    Sync {
+        profile: Option<String>,
+    },
+    Remove {
+        path: PathBuf,
     },
 }
 

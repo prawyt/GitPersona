@@ -1,6 +1,6 @@
 [package]
 name = "gitpersona"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "A safety-first local GitHub identity manager"
 license = "MIT"

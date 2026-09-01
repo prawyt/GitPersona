@@ -91,7 +91,7 @@ pub fn inspect(
 ) -> Result<CheckReport, GitPersonaError> {
     let git = Git::new(runner);
     let root = git.ensure_repo()?;
-    let bound = git.get("gitpersona.profile", true)?;
+    let bound = git.get("gitpersona.profile", false)?;
     let remote = git.remote(options.remote_name)?;
     let mut checks = Vec::new();
 
@@ -132,14 +132,14 @@ pub fn inspect(
         &mut checks,
         "git_name",
         &profile.git_name,
-        git.get("user.name", true)?.as_deref(),
+        git.get("user.name", false)?.as_deref(),
         "Git author name",
     );
     check_equal(
         &mut checks,
         "git_email",
         &profile.git_email,
-        git.get("user.email", true)?.as_deref(),
+        git.get("user.email", false)?.as_deref(),
         "Git author email",
     );
     if let Some(signing_key) = &profile.signing_key {
@@ -147,14 +147,14 @@ pub fn inspect(
             &mut checks,
             "signing_key",
             signing_key,
-            git.get("user.signingKey", true)?.as_deref(),
+            git.get("user.signingKey", false)?.as_deref(),
             "commit signing key",
         );
         check_equal(
             &mut checks,
             "signing_format",
             profile.signing_format.as_git_value(),
-            git.get("gpg.format", true)?.as_deref(),
+            git.get("gpg.format", false)?.as_deref(),
             "commit signing format",
         );
         if profile.require_signing {
@@ -162,7 +162,7 @@ pub fn inspect(
                 &mut checks,
                 "commit_signing",
                 "true",
-                git.get("commit.gpgSign", true)?.as_deref(),
+                git.get("commit.gpgSign", false)?.as_deref(),
                 "required commit signing",
             );
         }
@@ -237,7 +237,7 @@ fn inspect_remote(
                 checks,
                 "ssh_command",
                 &expected,
-                git.get("core.sshCommand", true).ok().flatten().as_deref(),
+                git.get("core.sshCommand", false).ok().flatten().as_deref(),
                 "repository SSH command",
             ),
             Err(error) => checks.push(item(

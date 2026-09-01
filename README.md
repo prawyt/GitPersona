@@ -56,6 +56,22 @@ gitpersona clone personal alice/project ./project --protocol https
 GitPersona validates the host and owner policy before cloning, switches GitHub
 CLI explicitly, and restores the previous account if cloning or binding fails.
 
+Import an existing repository identity without reading credentials, then apply a
+profile automatically to every repository under a directory using native Git
+`includeIf` rules:
+
+```console
+gitpersona profile import existing-work
+gitpersona directory add work ~/work
+gitpersona directory list
+gitpersona directory sync work
+gitpersona directory remove ~/work
+```
+
+Directory rules write marked profile fragments beside GitPersona's configuration
+and add an exact global include. Removal deletes only that exact include and only
+removes fragments carrying GitPersona's marker.
+
 For HTTPS remotes, configure GitHub CLI as Git's credential helper:
 
 ```console
