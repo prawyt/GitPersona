@@ -1,15 +1,39 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
-    types: [labeled]
+    types: [labeled, synchronize, reopened]
 
 permissions:
   contents: read
 
 jobs:
+  consume-run-ci:
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'run-ci')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Remove one-shot CI label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: >-
+          gh api --method DELETE
+          "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels/run-ci"
+
   test:
-    if: github.event.label.name == 'run-ci'
+    needs: consume-run-ci
+    if: >-
+      always() &&
+      (github.event_name == 'push' ||
+      needs.consume-run-ci.result == 'success')
     strategy:
       fail-fast: false
       matrix:
@@ -21,7 +45,28 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y
+          libwebkit2gtk-4.1-dev
+          libappindicator3-dev
+          librsvg2-dev
+          patchelf
+      - run: npm ci
+        working-directory: desktop
+      - run: npm test
+        working-directory: desktop
+      - run: npm run build
+        working-directory: desktop
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
-      - run: cargo build --release
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --all-features
+      - run: npm run tauri build -- --no-bundle
+        working-directory: desktop

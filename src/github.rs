@@ -2,6 +2,7 @@ use crate::{
     error::GitPersonaError,
     process::{Runner, os_args},
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{ffi::OsString, time::Duration};
 
@@ -11,7 +12,7 @@ pub struct GitHub<'a> {
     runner: &'a dyn Runner,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Account {
     pub login: String,
     pub active: bool,
