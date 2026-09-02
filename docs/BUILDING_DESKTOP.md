@@ -64,6 +64,26 @@ target\release\bundle\
 Public release installers should be code-signed. Local unsigned artifacts are
 suitable for development and testing but may trigger Windows security prompts.
 
+## GitHub release artifacts
+
+Pushing a version tag matching `v0.5.*` runs the release workflow. It creates a
+draft GitHub Release containing the platform installers and a portable Windows
+executable named like:
+
+```text
+GitPersona_0.5.0_windows_x86_64.exe
+```
+
+The release also includes a matching `.sha256` file for download verification.
+
+Review the draft release and its artifacts before publishing it. A release tag
+can be created after the intended commit has been merged:
+
+```powershell
+git tag v0.5.0
+git push origin v0.5.0
+```
+
 ## Rebuild after source changes
 
 If dependencies are already installed, only the build command is required:

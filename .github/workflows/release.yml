@@ -54,3 +54,27 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+      - name: Prepare portable Windows executable
+        if: matrix.platform == 'windows-latest'
+        id: portable-windows
+        shell: pwsh
+        run: |
+          $version = (Get-Content desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $name = "GitPersona_${version}_windows_x86_64.exe"
+          Copy-Item target/release/gitpersona-desktop.exe "target/release/$name"
+          $checksum = "$name.sha256"
+          $hash = (Get-FileHash "target/release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name" | Set-Content "target/release/$checksum" -NoNewline
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "name=$name" >> $env:GITHUB_OUTPUT
+          "checksum=$checksum" >> $env:GITHUB_OUTPUT
+      - name: Upload portable Windows executable
+        if: matrix.platform == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release upload
+          "v${{ steps.portable-windows.outputs.version }}"
+          "target/release/${{ steps.portable-windows.outputs.name }}"
+          "target/release/${{ steps.portable-windows.outputs.checksum }}"
+          --clobber
