@@ -512,6 +512,8 @@ function ProfileFields({
 }) {
   const field = (key: keyof Profile, value: string | boolean) =>
     setProfile({ ...profile, [key]: value });
+  const optionalField = (key: "ssh_key" | "signing_key", value: string) =>
+    setProfile({ ...profile, [key]: value.trim() || undefined });
   return (
     <div className="form-grid">
       <label>
@@ -575,8 +577,30 @@ function ProfileFields({
         SSH key path
         <input
           value={profile.ssh_key ?? ""}
-          onChange={(e) => field("ssh_key", e.target.value)}
-          placeholder="Optional; never inferred"
+          onChange={(e) => optionalField("ssh_key", e.target.value)}
+          placeholder="Private key path, for example ~/.ssh/id_ed25519"
+        />
+      </label>
+      <label>
+        Signing format
+        <select
+          value={profile.signing_format}
+          onChange={(e) => field("signing_format", e.target.value)}
+        >
+          <option value="openpgp">OpenPGP</option>
+          <option value="ssh">SSH</option>
+        </select>
+      </label>
+      <label>
+        Signing key
+        <input
+          value={profile.signing_key ?? ""}
+          onChange={(e) => optionalField("signing_key", e.target.value)}
+          placeholder={
+            profile.signing_format === "ssh"
+              ? "Public key path or key:: value"
+              : "OpenPGP key ID"
+          }
         />
       </label>
       <label className="check-row span-2">
@@ -1293,7 +1317,16 @@ function Ssh({
                 GitPersona never edits <code>~/.ssh/config</code>.
               </p>
             </div>
-            <button className="primary" onClick={test}>
+            <button
+              className="primary"
+              onClick={test}
+              disabled={!profile.profile.ssh_key}
+              title={
+                profile.profile.ssh_key
+                  ? undefined
+                  : "Configure a private SSH key path in Profiles first"
+              }
+            >
               <Terminal size={16} />
               Test authentication
             </button>
@@ -1312,6 +1345,18 @@ function Ssh({
               <dd>{profile.profile.ssh_key ?? "No key configured"}</dd>
             </div>
           </dl>
+          {!profile.profile.ssh_key && (
+            <div className="test-result unavailable" role="status">
+              <CircleAlert size={17} />
+              <div>
+                <strong>No SSH identity file is configured</strong>
+                <p>
+                  Edit this profile under Profiles and add the private key path
+                  used for authentication.
+                </p>
+              </div>
+            </div>
+          )}
           {report && (
             <div className={`test-result ${report.status}`}>
               <StatusIcon status={report.status} />

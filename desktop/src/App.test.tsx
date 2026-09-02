@@ -6,24 +6,23 @@ import { api } from "./api";
 
 vi.mock("./api", () => ({
   api: {
-    profiles: vi
-      .fn()
-      .mockResolvedValue([
-        {
-          name: "personal",
-          profile: {
-            github_user: "octocat",
-            git_name: "Octo Cat",
-            git_email: "octo@example.com",
-            hostname: "github.com",
-            allowed_owners: ["octocat"],
-            signing_format: "openpgp",
-            require_signing: false,
-          },
+    profiles: vi.fn().mockResolvedValue([
+      {
+        name: "personal",
+        profile: {
+          github_user: "octocat",
+          git_name: "Octo Cat",
+          git_email: "octo@example.com",
+          hostname: "github.com",
+          allowed_owners: ["octocat"],
+          signing_format: "openpgp",
+          require_signing: false,
         },
-      ]),
+      },
+    ]),
     roots: vi.fn().mockResolvedValue([]),
     doctor: vi.fn(),
+    updateProfile: vi.fn(),
   },
 }));
 
@@ -100,5 +99,66 @@ describe("GitPersona app shell", () => {
         name: "Start with a repository you know",
       }),
     ).not.toBeInTheDocument();
+  });
+
+  it("edits SSH authentication and signing settings", async () => {
+    vi.mocked(api.updateProfile).mockResolvedValue({
+      name: "personal",
+      profile: {
+        github_user: "octocat",
+        git_name: "Octo Cat",
+        git_email: "octo@example.com",
+        hostname: "github.com",
+        allowed_owners: ["octocat"],
+        ssh_key: "~/.ssh/id_ed25519",
+        signing_key: "~/.ssh/id_ed25519.pub",
+        signing_format: "ssh",
+        require_signing: true,
+      },
+    });
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Profiles" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.type(
+      screen.getByLabelText("SSH key path"),
+      "~/.ssh/id_ed25519",
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText("Signing format"),
+      "ssh",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Signing key"),
+      "~/.ssh/id_ed25519.pub",
+    );
+    await userEvent.click(
+      screen.getByLabelText("Require signed commits for bound repositories"),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(api.updateProfile).toHaveBeenCalledWith(
+      "personal",
+      expect.objectContaining({
+        ssh_key: "~/.ssh/id_ed25519",
+        signing_key: "~/.ssh/id_ed25519.pub",
+        signing_format: "ssh",
+        require_signing: true,
+      }),
+    );
+  });
+
+  it("explains why SSH testing is unavailable without a key", async () => {
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "SSH & Signing" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Test authentication" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText("No SSH identity file is configured"),
+    ).toBeInTheDocument();
   });
 });
