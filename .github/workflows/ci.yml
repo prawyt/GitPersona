@@ -18,6 +18,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: write
     steps:
       - name: Remove one-shot CI label
         env:
