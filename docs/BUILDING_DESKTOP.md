@@ -24,7 +24,20 @@ node --version
 npm --version
 ```
 
-## Build the executable
+## Choose the Windows artifact
+
+GitPersona can produce three Windows files:
+
+| File | Purpose | Build command |
+| --- | --- | --- |
+| `gitpersona-desktop.exe` | Portable application; runs without an installer | `npm run tauri build -- --no-bundle` |
+| `GitPersona_<version>_x64-setup.exe` | NSIS installer | `npm run tauri build -- --bundles nsis` |
+| `GitPersona_<version>_x64_en-US.msi` | MSI installer for Windows deployment tools | `npm run tauri build -- --bundles msi` |
+
+Use the combined installer command below when both the setup EXE and MSI are
+required.
+
+## Build the portable EXE
 
 From the repository root, install the locked frontend dependencies and build
 an optimized executable without packaging an installer:
@@ -44,37 +57,46 @@ target\release\gitpersona-desktop.exe
 The first build can take several minutes. Later builds reuse Cargo's compiled
 dependencies and are normally faster.
 
-## Build Windows installers
+## Build the installable EXE and MSI
 
-Run the build without `--no-bundle` to generate the configured Windows
-installer formats:
+From the repository root, run:
 
 ```powershell
 cd .\desktop
 npm ci
-npm run tauri build
+npm run tauri build -- --bundles msi,nsis
 ```
 
-Installer artifacts are written below:
+The command compiles the application once and creates both installers:
 
 ```text
-target\release\bundle\
+target\release\bundle\nsis\GitPersona_0.5.0_x64-setup.exe
+target\release\bundle\msi\GitPersona_0.5.0_x64_en-US.msi
 ```
+
+The version in each filename comes from `desktop\src-tauri\tauri.conf.json`.
+The compiled portable executable also remains at
+`target\release\gitpersona-desktop.exe`.
 
 Public release installers should be code-signed. Local unsigned artifacts are
 suitable for development and testing but may trigger Windows security prompts.
 
 ## GitHub release artifacts
 
-Pushing a version tag matching `v0.5.*` runs the release workflow. It creates a
-draft GitHub Release containing the platform installers and a portable Windows
-executable named like:
+The current release workflow builds Windows artifacts only. It can be started
+from the GitHub Actions **Release desktop** page with **Run workflow**, or by
+pushing a version tag matching `v0.5.*`.
+
+The workflow creates a draft GitHub Release containing the NSIS setup EXE, MSI,
+and a renamed portable executable such as:
 
 ```text
 GitPersona_0.5.0_windows_x86_64.exe
 ```
 
-The release also includes a matching `.sha256` file for download verification.
+The portable EXE includes a matching `.sha256` file for download verification.
+The MSI and NSIS installers are also retained together as the
+`gitpersona-windows-installers` workflow artifact.
 
 Review the draft release and its artifacts before publishing it. A release tag
 can be created after the intended commit has been merged:
@@ -123,6 +145,17 @@ npm run tauri build -- --no-bundle
 Keep `desktop/package-lock.json`; `npm ci` uses it to reproduce the dependency
 versions used by the project.
 
+To remove only generated Windows installers while retaining Cargo's compiled
+dependency cache:
+
+```powershell
+Remove-Item -Recurse -Force .\target\release\bundle -ErrorAction SilentlyContinue
+```
+
+Run `cargo clean` only when a completely clean Rust build is needed. It removes
+the entire `target` directory and can reclaim several gigabytes, but the next
+build will take longer because every Rust dependency must be compiled again.
+
 ## Development build
 
 To run the desktop application with Vite hot reload:
@@ -133,5 +166,6 @@ npm ci
 npm run tauri dev
 ```
 
-Development builds are not release artifacts. Use `npm run tauri build` when
-you need an optimized executable or installer.
+Development builds are not release artifacts. Use
+`npm run tauri build -- --no-bundle` for a portable release executable or
+`npm run tauri build -- --bundles msi,nsis` for both Windows installers.
