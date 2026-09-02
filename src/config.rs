@@ -12,6 +12,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Config {
     pub schema_version: u32,
@@ -19,14 +21,17 @@ pub struct Config {
     pub profiles: BTreeMap<String, Profile>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub directories: Vec<DirectoryRule>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repository_roots: Vec<PathBuf>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: CURRENT_SCHEMA_VERSION,
             profiles: BTreeMap::new(),
             directories: Vec::new(),
+            repository_roots: Vec::new(),
         }
     }
 }
@@ -215,20 +220,28 @@ impl ConfigStore {
     }
 
     pub fn load(&self) -> Result<Config, GitPersonaError> {
+        self.load_inner(true)
+    }
+
+    fn load_inner(&self, persist_migration: bool) -> Result<Config, GitPersonaError> {
         if !self.path.exists() {
             return Ok(Config::default());
         }
         let text = fs::read_to_string(&self.path).map_err(|e| {
             GitPersonaError::dependency(format!("could not read {}: {e}", self.path.display()))
         })?;
-        let config: Config = toml::from_str(&text).map_err(|e| {
+        let mut config: Config = toml::from_str(&text).map_err(|e| {
             GitPersonaError::usage(format!("invalid config {}: {e}", self.path.display()))
         })?;
-        if config.schema_version != 1 {
+        if config.schema_version > CURRENT_SCHEMA_VERSION || config.schema_version == 0 {
             return Err(GitPersonaError::usage(format!(
                 "unsupported config schema version {}",
                 config.schema_version
             )));
+        }
+        let migrated = config.schema_version == 1;
+        if migrated {
+            config.schema_version = CURRENT_SCHEMA_VERSION;
         }
         for (name, profile) in &config.profiles {
             validate_profile_name(name)?;
@@ -247,7 +260,61 @@ impl ConfigStore {
                 ));
             }
         }
+        config.repository_roots.sort_by(|left, right| {
+            left.to_string_lossy()
+                .to_ascii_lowercase()
+                .cmp(&right.to_string_lossy().to_ascii_lowercase())
+        });
+        config.repository_roots.dedup_by(|left, right| {
+            if cfg!(windows) {
+                left.to_string_lossy()
+                    .eq_ignore_ascii_case(&right.to_string_lossy())
+            } else {
+                left == right
+            }
+        });
+        if migrated && persist_migration {
+            self.persist_migration(&config)?;
+        }
         Ok(config)
+    }
+
+    fn persist_migration(&self, config: &Config) -> Result<(), GitPersonaError> {
+        let parent = self
+            .path
+            .parent()
+            .ok_or_else(|| GitPersonaError::dependency("config path has no parent directory"))?;
+        fs::create_dir_all(parent).map_err(|error| {
+            GitPersonaError::dependency(format!("could not create {}: {error}", parent.display()))
+        })?;
+        let lock = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(parent.join("config.lock"))
+            .map_err(|error| {
+                GitPersonaError::dependency(format!("could not open config lock: {error}"))
+            })?;
+        lock.lock_exclusive().map_err(|error| {
+            GitPersonaError::dependency(format!("could not lock config: {error}"))
+        })?;
+        let rendered = toml::to_string_pretty(config).map_err(|error| {
+            GitPersonaError::dependency(format!("could not serialize config: {error}"))
+        })?;
+        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(|error| {
+            GitPersonaError::dependency(format!("could not create temporary config: {error}"))
+        })?;
+        temp.write_all(rendered.as_bytes())
+            .and_then(|_| temp.as_file().sync_all())
+            .map_err(|error| {
+                GitPersonaError::dependency(format!("could not write temporary config: {error}"))
+            })?;
+        temp.persist(&self.path).map_err(|error| {
+            GitPersonaError::dependency(format!("could not persist config: {}", error.error))
+        })?;
+        FileExt::unlock(&lock).ok();
+        Ok(())
     }
 
     pub fn update<T>(
@@ -271,7 +338,8 @@ impl ConfigStore {
             .map_err(|e| GitPersonaError::dependency(format!("could not open config lock: {e}")))?;
         lock.lock_exclusive()
             .map_err(|e| GitPersonaError::dependency(format!("could not lock config: {e}")))?;
-        let mut config = self.load()?;
+        let mut config = self.load_inner(false)?;
+        config.schema_version = CURRENT_SCHEMA_VERSION;
         let result = operation(&mut config)?;
         let rendered = toml::to_string_pretty(&config)
             .map_err(|e| GitPersonaError::dependency(format!("could not serialize config: {e}")))?;
@@ -336,5 +404,25 @@ mod tests {
             store.load().unwrap().profiles["work"].git_name,
             "Alice Updated"
         );
+    }
+
+    #[test]
+    fn v1_config_is_atomically_migrated_with_empty_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "schema_version = 1\n").unwrap();
+        let config = ConfigStore::at(path.clone()).load().unwrap();
+        assert_eq!(config.schema_version, CURRENT_SCHEMA_VERSION);
+        assert!(config.repository_roots.is_empty());
+        let persisted = fs::read_to_string(path).unwrap();
+        assert!(persisted.contains("schema_version = 2"));
+    }
+
+    #[test]
+    fn future_schema_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "schema_version = 99\n").unwrap();
+        assert!(ConfigStore::at(path).load().is_err());
     }
 }

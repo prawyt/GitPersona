@@ -4,6 +4,8 @@ GitPersona is a safety-first local identity manager for developers who use perso
 
 GitPersona delegates credentials to GitHub CLI, Git credential helpers, and OpenSSH. It never asks for, reads, or stores GitHub tokens.
 
+GitPersona v0.5 includes both the established CLI and a Tauri 2 desktop application for Windows, macOS, and Linux. The desktop app uses the same Rust safety layer and keeps GitHub CLI switching separate from repository binding.
+
 ## Install
 
 Install a Rust toolchain, then build from source:
@@ -13,7 +15,15 @@ cargo install --path .
 gitpersona --help
 ```
 
-GitPersona also expects `git`, `gh`, and `ssh` on `PATH`. Run `gitpersona doctor` to inspect the local setup.
+GitPersona also expects `git`, `gh`, and `ssh` on `PATH`. Run `gitpersona doctor` to inspect the local setup, or `gitpersona doctor --json` for a structured report.
+
+Build the desktop app from source with Node.js 22+ and npm:
+
+```console
+cd desktop
+npm ci
+npm run tauri build
+```
 
 ## Quick start
 
@@ -42,6 +52,7 @@ gitpersona bind work
 gitpersona bind work --switch
 gitpersona status
 gitpersona check
+gitpersona status --repo ../another-repository
 ```
 
 Clone and bind a repository in one identity-safe operation. GitPersona uses SSH
@@ -97,7 +108,8 @@ The pre-commit hook performs local author and policy checks. The pre-push hook p
 Configuration is stored in the platform-native user configuration directory. Override the location with `GITPERSONA_CONFIG` for portable or test setups.
 
 ```toml
-schema_version = 1
+schema_version = 2
+repository_roots = ["/home/alice/projects"]
 
 [profiles.work]
 github_user = "alice-company"
@@ -135,9 +147,9 @@ Repository binding and rollback metadata live only in local Git configuration. `
 
 ```console
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-features
-cargo build --release
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cd desktop && npm ci && npm test && npm run build
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations.

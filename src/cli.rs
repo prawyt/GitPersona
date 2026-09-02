@@ -25,7 +25,7 @@ pub enum Command {
     },
     Clone(CloneArgs),
     Bind(BindArgs),
-    Unbind,
+    Unbind(RepositoryArgs),
     Status(InspectArgs),
     Check(InspectArgs),
     Hooks {
@@ -36,7 +36,11 @@ pub enum Command {
         #[command(subcommand)]
         command: DirectoryCommand,
     },
-    Doctor,
+    Doctor(DoctorArgs),
+    Ssh {
+        #[command(subcommand)]
+        command: SshCommand,
+    },
     Completions {
         shell: Shell,
     },
@@ -89,6 +93,8 @@ pub struct ProfileImportArgs {
     pub remote: String,
     #[arg(long)]
     pub no_owner: bool,
+    #[arg(long)]
+    pub repo: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -149,6 +155,8 @@ pub struct BindArgs {
     pub switch: bool,
     #[arg(long)]
     pub force: bool,
+    #[arg(long)]
+    pub repo: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -159,6 +167,29 @@ pub struct InspectArgs {
     pub json: bool,
     #[arg(long, value_enum, hide = true)]
     pub hook: Option<HookMode>,
+    #[arg(long)]
+    pub repo: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct RepositoryArgs {
+    #[arg(long)]
+    pub repo: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct DoctorArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SshCommand {
+    Test {
+        profile: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

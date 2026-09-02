@@ -1,8 +1,8 @@
 use crate::{
     check::{self, CheckOptions},
     cli::{
-        BindArgs, Cli, Command, HookMode, HooksCommand, InspectArgs, ProfileCommand,
-        ProfileImportArgs, ProfileMutationArgs,
+        BindArgs, Cli, Command, DoctorArgs, HookMode, HooksCommand, InspectArgs, ProfileCommand,
+        ProfileImportArgs, ProfileMutationArgs, SshCommand,
     },
     clone_repo,
     config::{ConfigStore, Profile, validate_profile_name},
@@ -12,6 +12,7 @@ use crate::{
     github::GitHub,
     hooks::HookManager,
     process::{Runner, os_args},
+    service::GitPersonaService,
 };
 use clap::CommandFactory;
 use dialoguer::{Confirm, Input};
@@ -27,8 +28,8 @@ pub fn run(cli: Cli, runner: &dyn Runner) -> Result<u8, GitPersonaError> {
         Command::Use { profile } => use_profile(&profile, &store, runner),
         Command::Clone(args) => clone_repo::execute(args, &store, runner),
         Command::Bind(args) => bind(args, &store, runner),
-        Command::Unbind => {
-            Git::new(runner).unbind()?;
+        Command::Unbind(args) => {
+            git_for(runner, args.repo.as_deref()).unbind()?;
             println!("Repository unbound; original Git settings restored.");
             Ok(0)
         }
@@ -36,7 +37,8 @@ pub fn run(cli: Cli, runner: &dyn Runner) -> Result<u8, GitPersonaError> {
         Command::Check(args) => inspect(args, &store, runner, true),
         Command::Hooks { command } => hooks(command, runner),
         Command::Directory { command } => directory::execute(command, &store, runner),
-        Command::Doctor => doctor(&store, runner),
+        Command::Doctor(args) => doctor(args, &store, runner),
+        Command::Ssh { command } => ssh(command, &store, runner),
         Command::Completions { shell } => {
             clap_complete::generate(shell, &mut Cli::command(), "gitpersona", &mut io::stdout());
             Ok(0)
@@ -188,7 +190,7 @@ fn import_profile(
             args.name
         )));
     }
-    let git = Git::new(runner);
+    let git = git_for(runner, args.repo.as_deref());
     git.ensure_repo()?;
     let remote = git.remote(&args.remote)?.ok_or_else(|| {
         GitPersonaError::usage(format!("remote '{}' is not configured", args.remote))
@@ -369,7 +371,7 @@ fn bind(args: BindArgs, store: &ConfigStore, runner: &dyn Runner) -> Result<u8, 
     let profile = config.profiles.get(&args.profile).ok_or_else(|| {
         GitPersonaError::usage(format!("profile '{}' does not exist", args.profile))
     })?;
-    let git = Git::new(runner);
+    let git = git_for(runner, args.repo.as_deref());
     git.ensure_repo()?;
     let remote = git.remote(&args.remote)?;
     let old_name = git.get("gitpersona.profile", true)?;
@@ -419,9 +421,12 @@ fn inspect(
 ) -> Result<u8, GitPersonaError> {
     let config = store.load()?;
     let network = !matches!(args.hook, Some(HookMode::PreCommit));
-    let report = check::inspect(
+    let report = check::inspect_at(
         runner,
         &config,
+        args.repo
+            .as_deref()
+            .unwrap_or_else(|| std::path::Path::new(".")),
         CheckOptions {
             remote_name: &args.remote,
             network,
@@ -458,7 +463,20 @@ fn hooks(command: HooksCommand, runner: &dyn Runner) -> Result<u8, GitPersonaErr
     Ok(0)
 }
 
-fn doctor(store: &ConfigStore, runner: &dyn Runner) -> Result<u8, GitPersonaError> {
+fn doctor(
+    args: DoctorArgs,
+    store: &ConfigStore,
+    runner: &dyn Runner,
+) -> Result<u8, GitPersonaError> {
+    let service = GitPersonaService::new(store.clone(), runner);
+    let report = service.doctor()?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).map_err(json_error)?
+        );
+        return Ok(if report.healthy { 0 } else { 3 });
+    }
     let config = store.load()?;
     println!(
         "Config: OK ({}, {} profiles)",
@@ -493,6 +511,37 @@ fn doctor(store: &ConfigStore, runner: &dyn Runner) -> Result<u8, GitPersonaErro
         "HTTPS profiles require GitHub CLI's credential helper. Run 'gh auth setup-git --hostname <host>' if status reports it missing."
     );
     Ok(if unavailable { 3 } else { 0 })
+}
+
+fn ssh(
+    command: SshCommand,
+    store: &ConfigStore,
+    runner: &dyn Runner,
+) -> Result<u8, GitPersonaError> {
+    match command {
+        SshCommand::Test { profile, json } => {
+            let report = GitPersonaService::new(store.clone(), runner).ssh_test(&profile)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).map_err(json_error)?
+                );
+            } else {
+                println!("{}", report.message);
+            }
+            Ok(
+                if matches!(report.status, crate::api::SshTestStatus::Verified) {
+                    0
+                } else {
+                    3
+                },
+            )
+        }
+    }
+}
+
+fn git_for<'a>(runner: &'a dyn Runner, repository: Option<&std::path::Path>) -> Git<'a> {
+    repository.map_or_else(|| Git::new(runner), |path| Git::at(runner, path))
 }
 
 fn prompt_error(error: dialoguer::Error) -> GitPersonaError {

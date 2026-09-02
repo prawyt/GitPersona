@@ -18,6 +18,14 @@ pub trait AppError: Error + Send + Sync {
 }
 
 impl GitPersonaError {
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     pub fn check(message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::Check,

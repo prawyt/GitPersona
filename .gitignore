@@ -1,4 +1,11 @@
 /target/
 /graphify-out/
+/desktop/node_modules/
+/desktop/dist/
+/desktop/repository-desktop.png
+/desktop/repository-narrow.png
+/desktop/src-tauri/gen/
+/desktop/src-tauri/icons/android/
+/desktop/src-tauri/icons/ios/
+/desktop/src-tauri/icons/.gitkeep
 *.tmp
-

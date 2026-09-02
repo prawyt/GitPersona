@@ -7,9 +7,10 @@ use crate::{
     remote::{RemoteInfo, RemoteProtocol},
     ssh::{self, SshIdentity},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CheckStatus {
     Ok,
@@ -18,7 +19,7 @@ pub enum CheckStatus {
     Unverified,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CheckItem {
     pub id: String,
     pub status: CheckStatus,
@@ -29,7 +30,7 @@ pub struct CheckItem {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum OverallStatus {
     Ok,
@@ -37,7 +38,7 @@ pub enum OverallStatus {
     Failure,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckReport {
     pub repository: String,
     pub profile: Option<String>,
@@ -89,7 +90,24 @@ pub fn inspect(
     config: &Config,
     options: CheckOptions<'_>,
 ) -> Result<CheckReport, GitPersonaError> {
-    let git = Git::new(runner);
+    inspect_with_git(runner, config, Git::new(runner), options)
+}
+
+pub fn inspect_at(
+    runner: &dyn Runner,
+    config: &Config,
+    path: &Path,
+    options: CheckOptions<'_>,
+) -> Result<CheckReport, GitPersonaError> {
+    inspect_with_git(runner, config, Git::at(runner, path), options)
+}
+
+fn inspect_with_git(
+    runner: &dyn Runner,
+    config: &Config,
+    git: Git<'_>,
+    options: CheckOptions<'_>,
+) -> Result<CheckReport, GitPersonaError> {
     let root = git.ensure_repo()?;
     let bound = git.get("gitpersona.profile", false)?;
     let remote = git.remote(options.remote_name)?;
