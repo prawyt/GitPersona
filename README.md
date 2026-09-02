@@ -6,6 +6,10 @@ GitPersona delegates credentials to GitHub CLI, Git credential helpers, and Open
 
 GitPersona v0.5 includes both the established CLI and a Tauri 2 desktop application for Windows, macOS, and Linux. The desktop app uses the same Rust safety layer and keeps GitHub CLI switching separate from repository binding.
 
+New to GitPersona? Start with the [public user guide](docs/USER_GUIDE.md) for
+profile setup, SSH authentication, commit signing, repository binding, status
+checks, and troubleshooting.
+
 ## Install
 
 Install a Rust toolchain, then build from source:
