@@ -10,10 +10,29 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  consume-run-ci:
     if: >-
-      github.event_name == 'push' ||
+      github.event_name == 'pull_request' &&
       contains(github.event.pull_request.labels.*.name, 'run-ci')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Remove one-shot CI label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: >-
+          gh api --method DELETE
+          "repos/${{ github.repository }}/issues/${PR_NUMBER}/labels/run-ci"
+
+  test:
+    needs: consume-run-ci
+    if: >-
+      always() &&
+      (github.event_name == 'push' ||
+      needs.consume-run-ci.result == 'success')
     strategy:
       fail-fast: false
       matrix:
