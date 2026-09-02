@@ -342,7 +342,11 @@ code {
   font-style: normal;
   color: var(--faint);
 }
-.root-strip .scan-progress { margin-left: auto; color: var(--muted); font-weight: 500; }
+.root-strip .scan-progress {
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: 500;
+}
 .split-view {
   display: grid;
   grid-template-columns: minmax(260px, 35%) 1fr;

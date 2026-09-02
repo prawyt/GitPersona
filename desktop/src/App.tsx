@@ -963,12 +963,21 @@ function Repositories({
     setScanning(true);
     setScanProgress("Starting approved-root scan…");
     try {
-      const found = demo ? demoRepos : await api.scan((value) => {
-        const event = value as { type?: string; root?: string; repositories?: number };
-        if (event.type === "root_started") setScanProgress(`Scanning ${event.root}`);
-        if (event.type === "repository_found") setScanProgress("Repository found; continuing scan…");
-        if (event.type === "finished") setScanProgress(`${event.repositories ?? 0} repositories found`);
-      });
+      const found = demo
+        ? demoRepos
+        : await api.scan((value) => {
+            const event = value as {
+              type?: string;
+              root?: string;
+              repositories?: number;
+            };
+            if (event.type === "root_started")
+              setScanProgress(`Scanning ${event.root}`);
+            if (event.type === "repository_found")
+              setScanProgress("Repository found; continuing scan…");
+            if (event.type === "finished")
+              setScanProgress(`${event.repositories ?? 0} repositories found`);
+          });
       setRepositories(found);
       if (!selected && found[0]) setSelected(found[0].path);
       signal(`Scan complete · ${found.length} repositories found`);
@@ -978,7 +987,10 @@ function Repositories({
       setScanning(false);
     }
   };
-  const cancelScan = async () => { setScanProgress("Cancelling scan…"); if (!demo) await api.cancelScan(); };
+  const cancelScan = async () => {
+    setScanProgress("Cancelling scan…");
+    if (!demo) await api.cancelScan();
+  };
   const bind = async () => {
     if (!selected) return;
     if (!confirmRebind) {
@@ -1024,11 +1036,7 @@ function Repositories({
               Add root
             </button>
             <button className="primary" onClick={scanning ? cancelScan : scan}>
-              {scanning ? (
-                <Square size={14} />
-              ) : (
-                <RefreshCw size={16} />
-              )}
+              {scanning ? <Square size={14} /> : <RefreshCw size={16} />}
               {scanning ? "Cancel scan" : "Scan roots"}
             </button>
           </>
@@ -1048,7 +1056,11 @@ function Repositories({
           </span>
         ))}
         {roots.length === 0 && <em>No folders approved</em>}
-        {scanProgress && <span className="scan-progress" role="status">{scanProgress}</span>}
+        {scanProgress && (
+          <span className="scan-progress" role="status">
+            {scanProgress}
+          </span>
+        )}
       </div>
       <div className="split-view repo-split">
         <div className="list-pane">
