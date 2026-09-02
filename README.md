@@ -25,6 +25,9 @@ npm ci
 npm run tauri build
 ```
 
+For Windows prerequisites, EXE-only builds, installer output paths, and clean
+rebuild instructions, see [Building the desktop application](docs/BUILDING_DESKTOP.md).
+
 ## Quick start
 
 Create profiles using flags or omit required flags in an interactive terminal to be prompted:
