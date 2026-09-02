@@ -155,6 +155,48 @@ fn bind_and_unbind_restore_original_identity() {
 }
 
 #[test]
+fn repo_flag_operates_outside_the_current_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = initialized_repo(temp.path());
+    let elsewhere = temp.path().join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    let config = temp.path().join("config.toml");
+    add_profile(&repo, &config);
+    cargo_bin_cmd!()
+        .current_dir(&elsewhere)
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["bind", "work", "--repo", repo.to_str().unwrap()])
+        .assert()
+        .success();
+    cargo_bin_cmd!()
+        .current_dir(&elsewhere)
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["status", "--repo", repo.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("work@example.com"));
+    cargo_bin_cmd!()
+        .current_dir(&elsewhere)
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["unbind", "--repo", repo.to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+#[test]
+fn doctor_json_is_structured_and_keeps_dependency_exit_code() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let assert = cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["doctor", "--json"])
+        .assert();
+    assert
+        .stdout(predicate::str::contains("\"dependencies\""))
+        .stdout(predicate::str::contains("\"schema_version\": 2"));
+}
+
+#[test]
 fn bind_and_unbind_restore_signing_configuration() {
     let temp = tempfile::tempdir().unwrap();
     let repo = initialized_repo(temp.path());

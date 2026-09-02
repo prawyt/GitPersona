@@ -1,9 +1,9 @@
 use crate::error::GitPersonaError;
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RemoteProtocol {
     Ssh,
@@ -36,7 +36,7 @@ pub fn parse_repository(input: &str, hostname: &str) -> Result<RemoteInfo, GitPe
     build(input, RemoteProtocol::Https, hostname.to_string(), input)
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RemoteInfo {
     pub url: String,
     pub protocol: RemoteProtocol,

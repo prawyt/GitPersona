@@ -1,3 +1,4 @@
+pub mod api;
 pub mod app;
 pub mod check;
 pub mod cli;
@@ -10,4 +11,6 @@ pub mod github;
 pub mod hooks;
 pub mod process;
 pub mod remote;
+pub mod repository;
+pub mod service;
 pub mod ssh;
