@@ -23,6 +23,7 @@ vi.mock("./api", () => ({
     roots: vi.fn().mockResolvedValue([]),
     doctor: vi.fn(),
     updateProfile: vi.fn(),
+    chooseKeyFile: vi.fn(),
   },
 }));
 
@@ -160,5 +161,38 @@ describe("GitPersona app shell", () => {
     expect(
       screen.getByText("No SSH identity file is configured"),
     ).toBeInTheDocument();
+  });
+
+  it("renders repository status checks without crashing", async () => {
+    window.history.replaceState({}, "", "/?demo=1");
+    render(<App />);
+    await userEvent.click(screen.getByRole("button", { name: "Status" }));
+    expect(await screen.findByText("git author")).toBeInTheDocument();
+    expect(
+      screen.getByText("Git author matches the bound profile"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows guidance when status has no repository", async () => {
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Status" }),
+    );
+    expect(screen.getByText("No repository selected")).toBeInTheDocument();
+  });
+
+  it("selects an SSH private key with the native picker", async () => {
+    vi.mocked(api.chooseKeyFile).mockResolvedValue(
+      "C:\\Users\\octo\\.ssh\\id_ed25519",
+    );
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Profiles" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.click(screen.getByRole("button", { name: "Browse" }));
+    expect(screen.getByLabelText("SSH key path")).toHaveValue(
+      "C:\\Users\\octo\\.ssh\\id_ed25519",
+    );
   });
 });

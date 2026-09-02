@@ -95,6 +95,22 @@ fn choose_folder(
 }
 
 #[tauri::command]
+fn choose_key_file(app: AppHandle) -> Result<Option<PathBuf>, ApiError> {
+    app.dialog()
+        .file()
+        .blocking_pick_file()
+        .map(|path| {
+            path.into_path().map_err(|error| ApiError {
+                kind: "usage".into(),
+                message: error.to_string(),
+                exit_code: 2,
+                field: Some("ssh_key".into()),
+            })
+        })
+        .transpose()
+}
+
+#[tauri::command]
 async fn list_repository_roots() -> Result<Vec<PathBuf>, ApiError> {
     service()?.repository_roots().map_err(Into::into)
 }
@@ -211,6 +227,7 @@ fn main() {
             remove_profile,
             import_profile_preview,
             choose_folder,
+            choose_key_file,
             list_repository_roots,
             add_repository_root,
             remove_repository_root,

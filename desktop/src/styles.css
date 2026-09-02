@@ -665,7 +665,8 @@ select {
   gap: 14px;
   margin: 20px 0;
 }
-.form-grid label {
+.form-grid label,
+.form-grid .form-field {
   display: grid;
   gap: 5px;
   color: var(--muted);
@@ -679,6 +680,29 @@ select {
 }
 .form-grid .span-2 {
   grid-column: 1/-1;
+}
+.input-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.input-action input {
+  min-width: 0;
+}
+.field-hint,
+.field-error {
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.field-hint {
+  color: var(--muted);
+}
+.field-error {
+  color: var(--danger);
+}
+.status-empty {
+  min-height: 280px;
 }
 .form-grid .check-row {
   display: flex;

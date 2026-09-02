@@ -510,6 +510,7 @@ function ProfileFields({
   setProfile: (v: Profile) => void;
   nameLocked?: boolean;
 }) {
+  const [pickerError, setPickerError] = useState("");
   const field = (key: keyof Profile, value: string | boolean) =>
     setProfile({ ...profile, [key]: value });
   const optionalField = (key: "ssh_key" | "signing_key", value: string) =>
@@ -573,14 +574,41 @@ function ProfileFields({
           placeholder="organization, username"
         />
       </label>
-      <label className="span-2">
-        SSH key path
-        <input
-          value={profile.ssh_key ?? ""}
-          onChange={(e) => optionalField("ssh_key", e.target.value)}
-          placeholder="Private key path, for example ~/.ssh/id_ed25519"
-        />
-      </label>
+      <div className="form-field span-2">
+        <label htmlFor="ssh-key-path">SSH key path</label>
+        <span className="input-action">
+          <input
+            id="ssh-key-path"
+            value={profile.ssh_key ?? ""}
+            onChange={(e) => optionalField("ssh_key", e.target.value)}
+            placeholder="Private key path, for example ~/.ssh/id_ed25519"
+          />
+          <button
+            type="button"
+            className="secondary"
+            onClick={async () => {
+              setPickerError("");
+              try {
+                const selected = await api.chooseKeyFile();
+                if (selected) optionalField("ssh_key", selected);
+              } catch (error) {
+                setPickerError(errorMessage(error));
+              }
+            }}
+          >
+            <Folder size={15} />
+            Browse
+          </button>
+        </span>
+        <small className="field-hint">
+          Choose the private key, not the matching <code>.pub</code> file.
+        </small>
+        {pickerError && (
+          <small className="field-error" role="alert">
+            {pickerError}
+          </small>
+        )}
+      </div>
       <label>
         Signing format
         <select
@@ -1425,32 +1453,36 @@ function Status({
                   repository: selected.path,
                   profile: selected.bound_profile,
                   overall: "warning",
-                  items: [
+                  checks: [
                     {
-                      label: "Git author",
+                      id: "git_author",
                       expected: "Mira Chen",
                       actual: selected.git_name,
-                      status: "pass",
+                      status: "ok",
+                      message: "Git author matches the bound profile",
                     },
                     {
-                      label: "Git email",
+                      id: "git_email",
                       expected: "oss@mira.dev",
                       actual: selected.git_email,
-                      status: selected.status === "drifted" ? "fail" : "pass",
-                      detail: selected.detail,
+                      status: selected.status === "drifted" ? "failure" : "ok",
+                      message:
+                        selected.detail ??
+                        "Git email matches the bound profile",
                     },
                     {
-                      label: "Remote owner",
+                      id: "remote_owner",
                       expected: "tauri-apps",
                       actual: selected.remote?.owner,
-                      status: "pass",
+                      status: "ok",
+                      message: "Remote owner is allowed by the profile",
                     },
                     {
-                      label: "GitHub CLI",
+                      id: "github_cli",
                       expected: selected.bound_profile,
                       actual: network ? "mira-dev" : undefined,
-                      status: network ? "warning" : "unavailable",
-                      detail: network
+                      status: network ? "warning" : "unverified",
+                      message: network
                         ? "Active account differs; no switch was performed."
                         : "Run network refresh to check.",
                     },
@@ -1512,31 +1544,44 @@ function Status({
           </span>
         )}
       </div>
-      <table className="check-table">
-        <thead>
-          <tr>
-            <th>Check</th>
-            <th>Expected</th>
-            <th>Actual</th>
-            <th>Result</th>
-          </tr>
-        </thead>
-        <tbody>
-          {report?.report.items.map((item) => (
-            <tr key={item.label}>
-              <th scope="row">
-                {item.label}
-                {item.detail && <small>{item.detail}</small>}
-              </th>
-              <td>{item.expected ?? "—"}</td>
-              <td>{item.actual ?? "Not checked"}</td>
-              <td>
-                <Badge status={item.status} />
-              </td>
+      {!selected ? (
+        <div className="empty-inspector status-empty">
+          <GitBranch size={28} />
+          <h2>No repository selected</h2>
+          <p>
+            Add an approved root and scan it under Repositories, then return
+            here to inspect its identity.
+          </p>
+        </div>
+      ) : refreshing && !report ? (
+        <Loading />
+      ) : report ? (
+        <table className="check-table">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Expected</th>
+              <th>Actual</th>
+              <th>Result</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {report.report.checks.map((item) => (
+              <tr key={item.id}>
+                <th scope="row">
+                  {item.id.replaceAll("_", " ")}
+                  <small>{item.message}</small>
+                </th>
+                <td>{item.expected ?? "—"}</td>
+                <td>{item.actual ?? "Not checked"}</td>
+                <td>
+                  <Badge status={item.status} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
     </section>
   );
 }
