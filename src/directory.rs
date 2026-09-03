@@ -95,7 +95,6 @@ pub fn rename_profile(
     Ok(())
 }
 
-
 fn sync_all(store: &ConfigStore) -> Result<(), GitPersonaError> {
     let config = store.load()?;
     let names = config
@@ -415,7 +414,7 @@ fn global_remove(runner: &dyn Runner, key: &str, value: &str) -> Result<(), GitP
         ]),
         TIMEOUT,
     )?;
-    if output.code == Some(0) {
+    if matches!(output.code, Some(0 | 5)) {
         Ok(())
     } else {
         Err(GitPersonaError::dependency(format!(

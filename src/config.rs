@@ -1,7 +1,7 @@
 use crate::error::GitPersonaError;
 use clap::ValueEnum;
 use directories::{BaseDirs, ProjectDirs};
-use fs2::FileExt;
+use fs4::fs_std::FileExt;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -155,8 +155,10 @@ impl Profile {
 }
 
 pub fn validate_profile_name(name: &str) -> Result<(), GitPersonaError> {
-    let pattern = Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$").expect("valid regex");
-    if pattern.is_match(name) {
+    static PATTERN: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$").expect("valid regex")
+    });
+    if PATTERN.is_match(name) {
         Ok(())
     } else {
         Err(GitPersonaError::usage(
@@ -287,6 +289,8 @@ impl ConfigStore {
         fs::create_dir_all(parent).map_err(|error| {
             GitPersonaError::dependency(format!("could not create {}: {error}", parent.display()))
         })?;
+        // The lock file is intentionally kept on disk across operations.
+        // Deleting it creates a TOCTOU race where concurrent processes can lock different inodes.
         let lock = OpenOptions::new()
             .create(true)
             .read(true)
@@ -328,6 +332,8 @@ impl ConfigStore {
         fs::create_dir_all(parent).map_err(|e| {
             GitPersonaError::dependency(format!("could not create {}: {e}", parent.display()))
         })?;
+        // The lock file is intentionally kept on disk across operations.
+        // Deleting it creates a TOCTOU race where concurrent processes can lock different inodes.
         let lock_path = parent.join("config.lock");
         let lock = OpenOptions::new()
             .create(true)

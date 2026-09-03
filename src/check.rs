@@ -109,6 +109,9 @@ fn inspect_with_git(
     options: CheckOptions<'_>,
 ) -> Result<CheckReport, GitPersonaError> {
     let root = git.ensure_repo()?;
+    // Read the effective (not just repository-local) profile binding.
+    // Directory-scoped includeIf fragments set gitpersona.profile, so
+    // status/check must honour those to report accurate state.
     let bound = git.get("gitpersona.profile", false)?;
     let remote = git.remote(options.remote_name)?;
     let mut checks = Vec::new();
