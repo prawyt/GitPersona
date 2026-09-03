@@ -4,7 +4,7 @@ GitPersona is a safety-first local identity manager for developers who use perso
 
 GitPersona delegates credentials to GitHub CLI, Git credential helpers, and OpenSSH. It never asks for, reads, or stores GitHub tokens.
 
-GitPersona v0.5 includes both the established CLI and a Tauri 2 desktop application for Windows, macOS, and Linux. The desktop app uses the same Rust safety layer and keeps GitHub CLI switching separate from repository binding.
+GitPersona v0.6 includes both the established CLI and a Tauri 2 desktop application for Windows, macOS, and Linux. The desktop app uses the same Rust safety layer and keeps GitHub CLI switching separate from repository binding.
 
 New to GitPersona? Start with the [public user guide](docs/USER_GUIDE.md) for
 profile setup, SSH authentication, commit signing, repository binding, status
@@ -156,7 +156,7 @@ Repository binding and rollback metadata live only in local Git configuration. `
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cd desktop && npm ci && npm test && npm run build
+cd desktop && npm ci && npm run lint && npm test && npm run build
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations.

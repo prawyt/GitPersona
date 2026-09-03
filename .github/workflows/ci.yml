@@ -63,6 +63,10 @@ jobs:
           patchelf
       - run: npm ci
         working-directory: desktop
+      - run: npm run lint
+        working-directory: desktop
+      - run: npm run format:check
+        working-directory: desktop
       - run: npm test
         working-directory: desktop
       - run: npm run build
