@@ -1292,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "gitpersona"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "gitpersona-desktop"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "gitpersona",
  "serde",
