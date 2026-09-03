@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "tauri": "tauri",
     "lint": "eslint src",
-    "format:check": "prettier --check src *.ts *.js *.html"
+    "format:check": "prettier --check .",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

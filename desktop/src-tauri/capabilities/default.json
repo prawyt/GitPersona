@@ -3,8 +3,5 @@
   "identifier": "main-window",
   "description": "Only the GitPersona main window receives core application access.",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "dialog:default"
-  ]
+  "permissions": ["core:default", "dialog:default"]
 }
