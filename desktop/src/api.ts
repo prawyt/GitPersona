@@ -16,6 +16,8 @@ export const api = {
     invoke<NamedProfile>("create_profile", { name, profile }),
   updateProfile: (name: string, profile: Profile) =>
     invoke<NamedProfile>("update_profile", { name, profile }),
+  renameProfile: (oldName: string, newName: string) =>
+    invoke<NamedProfile>("rename_profile", { oldName, newName }),
   removeProfile: (name: string) => invoke<void>("remove_profile", { name }),
   chooseFolder: () => invoke<string | null>("choose_folder"),
   chooseKeyFile: () => invoke<string | null>("choose_key_file"),

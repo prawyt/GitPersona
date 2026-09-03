@@ -55,6 +55,13 @@ async fn remove_profile(name: String) -> Result<(), ApiError> {
 }
 
 #[tauri::command]
+async fn rename_profile(old_name: String, new_name: String) -> Result<NamedProfile, ApiError> {
+    service()?
+        .rename_profile(&old_name, &new_name)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 async fn import_profile_preview(
     repository: PathBuf,
     approved: State<'_, ApprovedPaths>,
@@ -224,6 +231,7 @@ fn main() {
             list_profiles,
             create_profile,
             update_profile,
+            rename_profile,
             remove_profile,
             import_profile_preview,
             choose_folder,

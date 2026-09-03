@@ -59,6 +59,43 @@ pub fn sync_profile(name: &str, store: &ConfigStore) -> Result<(), GitPersonaErr
     write_fragment(store, name, profile)
 }
 
+pub fn rename_profile(
+    old_name: &str,
+    new_name: &str,
+    store: &ConfigStore,
+    runner: &dyn Runner,
+) -> Result<(), GitPersonaError> {
+    let old_fragment = fragment_path(store, old_name)?;
+    let new_fragment = fragment_path(store, new_name)?;
+    let old_value = git_path(&old_fragment);
+    let new_value = git_path(&new_fragment);
+
+    let config = store.load()?;
+    let rules_to_update: Vec<DirectoryRule> = config
+        .directories
+        .iter()
+        .filter(|rule| rule.profile == old_name)
+        .cloned()
+        .collect();
+
+    for rule in &rules_to_update {
+        let key = include_key(&rule.path);
+        let _ = global_remove(runner, &key, &old_value);
+        global_add(runner, &key, &new_value)?;
+    }
+
+    if !rules_to_update.is_empty() && old_fragment.exists() {
+        if let Ok(contents) = fs::read_to_string(&old_fragment) {
+            if contents.starts_with(MARKER) {
+                let _ = fs::remove_file(&old_fragment);
+            }
+        }
+    }
+    sync_profile(new_name, store)?;
+    Ok(())
+}
+
+
 fn sync_all(store: &ConfigStore) -> Result<(), GitPersonaError> {
     let config = store.load()?;
     let names = config

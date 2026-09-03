@@ -84,6 +84,10 @@ pub enum ProfileCommand {
         #[arg(long)]
         yes: bool,
     },
+    Rename {
+        old_name: String,
+        new_name: String,
+    },
 }
 
 #[derive(Debug, Args)]

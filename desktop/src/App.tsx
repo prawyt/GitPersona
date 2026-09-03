@@ -676,26 +676,42 @@ function Profiles({
   }, [current, mode]);
   const save = async () => {
     try {
-      mode === "new"
-        ? await api.createProfile(name, draft)
-        : await api.updateProfile(current.name, draft);
-      signal(`Profile '${name}' saved`);
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        setError("Profile name cannot be empty");
+        return;
+      }
+      if (mode === "new") {
+        await api.createProfile(trimmedName, draft);
+        signal(`Profile '${trimmedName}' saved`);
+        setSelected(trimmedName);
+      } else {
+        if (trimmedName !== current.name) {
+          await api.renameProfile(current.name, trimmedName);
+          await api.updateProfile(trimmedName, draft);
+          signal(`Profile renamed to '${trimmedName}' and updated`);
+          setSelected(trimmedName);
+        } else {
+          await api.updateProfile(current.name, draft);
+          signal(`Profile '${trimmedName}' saved`);
+        }
+      }
       setMode("view");
       await onChanged();
     } catch (e) {
       setError(errorMessage(e));
     }
   };
-  const duplicate = async () => {
-    const copyName = `${current.name}-copy`;
-    try {
-      await api.createProfile(copyName, current.profile);
-      signal(`Profile duplicated as '${copyName}'`);
-      await onChanged();
-      setSelected(copyName);
-    } catch (e) {
-      setError(errorMessage(e));
+  const duplicate = () => {
+    let candidate = `${current.name}-copy`;
+    let counter = 2;
+    while (profiles.some((p) => p.name === candidate)) {
+      candidate = `${current.name}-copy-${counter}`;
+      counter += 1;
     }
+    setName(candidate);
+    setDraft({ ...current.profile });
+    setMode("new");
   };
   const remove = async () => {
     try {
@@ -806,7 +822,6 @@ function Profiles({
                 setName={setName}
                 profile={draft}
                 setProfile={setDraft}
-                nameLocked={mode === "edit"}
               />
               <div className="button-row">
                 <button className="primary" onClick={save}>

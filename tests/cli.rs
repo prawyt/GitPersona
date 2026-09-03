@@ -43,6 +43,19 @@ fn profile_add_and_list_json() {
         .assert()
         .success()
         .stdout(predicate::str::contains("alice-work"));
+
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["profile", "rename", "work", "work-renamed"])
+        .assert()
+        .success();
+
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["profile", "show", "work-renamed", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("alice-work"));
 }
 
 #[test]

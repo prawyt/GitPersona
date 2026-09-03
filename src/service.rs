@@ -130,6 +130,50 @@ impl<'a> GitPersonaService<'a> {
         })
     }
 
+    pub fn rename_profile(
+        &self,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<NamedProfile, GitPersonaError> {
+        validate_profile_name(new_name)?;
+        if old_name == new_name {
+            let profile = self.get_profile(old_name)?.profile;
+            return Ok(NamedProfile {
+                name: new_name.into(),
+                profile,
+            });
+        }
+        let profile = self.store.update(|config| {
+            if !config.profiles.contains_key(old_name) {
+                return Err(GitPersonaError::usage(format!(
+                    "profile '{old_name}' does not exist"
+                )));
+            }
+            if config.profiles.contains_key(new_name) {
+                return Err(GitPersonaError::usage(format!(
+                    "profile '{new_name}' already exists"
+                )));
+            }
+            let profile = config
+                .profiles
+                .remove(old_name)
+                .expect("old profile exists");
+            config.profiles.insert(new_name.into(), profile.clone());
+            for rule in &mut config.directories {
+                if rule.profile == old_name {
+                    rule.profile = new_name.into();
+                }
+            }
+            Ok(profile)
+        })?;
+        directory::rename_profile(old_name, new_name, &self.store, self.runner)?;
+        Ok(NamedProfile {
+            name: new_name.into(),
+            profile,
+        })
+    }
+
+
     pub fn import_preview(
         &self,
         repository: &Path,

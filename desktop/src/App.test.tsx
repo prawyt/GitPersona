@@ -22,7 +22,9 @@ vi.mock("./api", () => ({
     ]),
     roots: vi.fn().mockResolvedValue([]),
     doctor: vi.fn(),
+    createProfile: vi.fn(),
     updateProfile: vi.fn(),
+    renameProfile: vi.fn(),
     chooseKeyFile: vi.fn(),
   },
 }));
@@ -193,6 +195,89 @@ describe("GitPersona app shell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Browse" }));
     expect(screen.getByLabelText("SSH key path")).toHaveValue(
       "C:\\Users\\octo\\.ssh\\id_ed25519",
+    );
+  });
+
+  it("allows renaming an existing profile", async () => {
+    vi.mocked(api.renameProfile).mockResolvedValue({
+      name: "personal-renamed",
+      profile: {
+        github_user: "octocat",
+        git_name: "Octo Cat",
+        git_email: "octo@example.com",
+        hostname: "github.com",
+        allowed_owners: ["octocat"],
+        signing_format: "openpgp",
+        require_signing: false,
+      },
+    });
+    vi.mocked(api.updateProfile).mockResolvedValue({
+      name: "personal-renamed",
+      profile: {
+        github_user: "octocat",
+        git_name: "Octo Cat",
+        git_email: "octo@example.com",
+        hostname: "github.com",
+        allowed_owners: ["octocat"],
+        signing_format: "openpgp",
+        require_signing: false,
+      },
+    });
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Profiles" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const nameInput = screen.getByLabelText("Profile name");
+    expect(nameInput).not.toBeDisabled();
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "personal-renamed");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(api.renameProfile).toHaveBeenCalledWith(
+      "personal",
+      "personal-renamed",
+    );
+  });
+
+  it("duplicates a profile with an editable name before saving", async () => {
+    vi.mocked(api.createProfile).mockResolvedValue({
+      name: "custom-copy",
+      profile: {
+        github_user: "octocat",
+        git_name: "Octo Cat",
+        git_email: "octo@example.com",
+        hostname: "github.com",
+        allowed_owners: ["octocat"],
+        signing_format: "openpgp",
+        require_signing: false,
+      },
+    });
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Profiles" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Duplicate profile" }),
+    );
+
+    const nameInput = screen.getByLabelText("Profile name");
+    expect(nameInput).toHaveValue("personal-copy");
+    expect(nameInput).not.toBeDisabled();
+
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "custom-copy");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(api.createProfile).toHaveBeenCalledWith(
+      "custom-copy",
+      expect.objectContaining({
+        github_user: "octocat",
+        git_name: "Octo Cat",
+      }),
     );
   });
 });
