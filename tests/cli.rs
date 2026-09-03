@@ -748,3 +748,170 @@ fn git_dir_in_the_environment_does_not_redirect_a_binding() {
         "binding leaked into the GIT_DIR decoy repository"
     );
 }
+
+#[test]
+fn clone_refuses_an_owner_the_profile_does_not_allow() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let repo = initialized_repo(temp.path());
+    add_profile(&repo, &config);
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args([
+            "profile",
+            "edit",
+            "work",
+            "--allowed-owner",
+            "permitted-org",
+        ])
+        .assert()
+        .success();
+
+    // Owner policy is enforced before any network work or account switch, so
+    // this needs no gh on PATH: reaching one would itself be the bug.
+    cargo_bin_cmd!()
+        .current_dir(temp.path())
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["clone", "work", "other-org/project"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("not allowed by profile"));
+    assert!(!temp.path().join("project").exists());
+}
+
+#[test]
+fn clone_rejects_a_host_that_is_not_the_profile_host() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let repo = initialized_repo(temp.path());
+    add_profile(&repo, &config);
+    cargo_bin_cmd!()
+        .current_dir(temp.path())
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["clone", "work", "https://gitlab.example/org/project.git"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("does not match profile host"));
+}
+
+#[test]
+fn profile_rename_moves_the_directory_rule_and_its_fragment() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let global = temp.path().join("global.gitconfig");
+    let projects = temp.path().join("projects");
+    let repo = projects.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    add_profile(&repo, &config);
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .args(["directory", "add", "work", projects.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let profiles = temp.path().join("profiles");
+    assert!(profiles.join("work.gitconfig").is_file());
+
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .args(["profile", "rename", "work", "employer"])
+        .assert()
+        .success();
+
+    // The fragment follows the name, and the include points at the new file.
+    assert!(profiles.join("employer.gitconfig").is_file());
+    assert!(!profiles.join("work.gitconfig").exists());
+    let includes = Command::new("git")
+        .args(["config", "--global", "--get-regexp", "^includeIf"])
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .output()
+        .unwrap();
+    let includes = String::from_utf8(includes.stdout).unwrap();
+    assert!(includes.contains("employer.gitconfig"), "{includes}");
+    assert!(!includes.contains("work.gitconfig"), "{includes}");
+
+    // The identity still resolves through the moved include.
+    let output = Command::new("git")
+        .args(["config", "--get", "user.email"])
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "work@example.com"
+    );
+}
+
+#[test]
+fn profile_remove_refuses_while_a_directory_rule_depends_on_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let global = temp.path().join("global.gitconfig");
+    let projects = temp.path().join("projects");
+    let repo = projects.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    add_profile(&repo, &config);
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .args(["directory", "add", "work", projects.to_str().unwrap()])
+        .assert()
+        .success();
+
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .args(["profile", "remove", "work", "--yes"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("directory rules"));
+
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["profile", "show", "work"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn hooks_install_is_not_repeatable_and_leaves_the_first_hook_intact() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = initialized_repo(temp.path());
+    let hooks = repo.join(".git").join("hooks");
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .args(["hooks", "install"])
+        .assert()
+        .success();
+    let first = fs::read_to_string(hooks.join("pre-commit")).unwrap();
+
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .args(["hooks", "install"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("refusing to replace"));
+    assert_eq!(fs::read_to_string(hooks.join("pre-commit")).unwrap(), first);
+}

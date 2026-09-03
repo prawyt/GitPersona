@@ -74,11 +74,15 @@ pub fn rename_profile(
     let old_value = git_path(&old_fragment);
     let new_value = git_path(&new_fragment);
 
+    // The caller (`GitPersonaService::rename_profile`) has already committed the
+    // rename to the config, so the rules to repoint are the ones now carrying
+    // the NEW name. Filtering on `old_name` here matched nothing, which left the
+    // stale include pointing at a fragment that was then never deleted.
     let config = store.load()?;
     let rules_to_update: Vec<DirectoryRule> = config
         .directories
         .iter()
-        .filter(|rule| rule.profile == old_name)
+        .filter(|rule| rule.profile == new_name)
         .cloned()
         .collect();
 
