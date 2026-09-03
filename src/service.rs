@@ -173,7 +173,6 @@ impl<'a> GitPersonaService<'a> {
         })
     }
 
-
     pub fn import_preview(
         &self,
         repository: &Path,

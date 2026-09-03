@@ -111,6 +111,7 @@ pub fn execute(
     let git = Git::at(runner, &absolute);
     let remote = git.remote(&args.remote)?;
     if let Err(error) = git.bind(&args.profile, profile, remote.as_ref(), false, None) {
+        let _ = std::fs::remove_dir_all(&absolute);
         restore_account(
             &github,
             &profile.hostname,
@@ -118,8 +119,8 @@ pub fn execute(
             args.no_switch,
         )?;
         return Err(GitPersonaError::dependency(format!(
-            "repository cloned to {}, but binding failed: {error}",
-            absolute.display()
+            "binding to profile '{}' failed; the cloned directory has been removed: {error}",
+            args.profile
         )));
     }
 
