@@ -109,8 +109,7 @@ fn run_command(
     })?;
 
     if status.is_none() {
-        let _ = child.kill();
-        let _ = child.wait();
+        kill_process_tree(&mut child);
         // Allow the reader threads to finish after process is killed.
         let _ = stdout_thread.join();
         let _ = stderr_thread.join();
@@ -129,6 +128,22 @@ fn run_command(
         stdout,
         stderr,
     })
+}
+
+fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        // On Windows, child.kill() only terminates the top-level process.
+        // /F = forcefully terminate, /T = terminate process and all child processes.
+        let pid = child.id();
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 pub fn os_args(values: &[&str]) -> Vec<OsString> {

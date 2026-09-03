@@ -305,6 +305,7 @@ fn quote(value: &str) -> String {
         value
             .replace('\\', "\\\\")
             .replace('"', "\\\"")
+            .replace('\r', "\\r")
             .replace('\n', "\\n")
             .replace('\t', "\\t")
     )
