@@ -33,8 +33,9 @@ pub fn verify(runner: &dyn Runner, profile: &Profile) -> Result<SshIdentity, Git
     ];
     let output = runner.run("ssh", &args, Duration::from_secs(15))?;
     let combined = output.combined();
-    let regex = Regex::new(r"(?i)Hi\s+([^!\s]+)!").expect("valid regex");
-    if let Some(captures) = regex.captures(&combined) {
+    static PATTERN: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)Hi\s+([^!\s]+)!").expect("valid regex"));
+    if let Some(captures) = PATTERN.captures(&combined) {
         let user = captures[1].to_string();
         return if user.eq_ignore_ascii_case(&profile.github_user) {
             Ok(SshIdentity::Verified(user))

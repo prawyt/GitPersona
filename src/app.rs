@@ -175,6 +175,12 @@ fn profile_command(
             println!("Profile '{name}' removed.");
             Ok(0)
         }
+        ProfileCommand::Rename { old_name, new_name } => {
+            let service = GitPersonaService::new(store.clone(), runner);
+            service.rename_profile(&old_name, &new_name)?;
+            println!("Profile '{old_name}' renamed to '{new_name}'.");
+            Ok(0)
+        }
     }
 }
 

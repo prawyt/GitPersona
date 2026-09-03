@@ -199,7 +199,10 @@ impl<'a> Git<'a> {
         let escaped = path
             .to_string_lossy()
             .replace('\\', "\\\\")
-            .replace('"', "\\\"");
+            .replace('"', "\\\"")
+            .replace('$', "\\$")
+            .replace('`', "\\`")
+            .replace('!', "\\!");
         Ok(format!("ssh -i \"{escaped}\" -o IdentitiesOnly=yes"))
     }
 
@@ -339,12 +342,14 @@ impl<'a> Git<'a> {
             for (managed, present_key, value_key) in BACKUP_KEYS {
                 let present = self.get(present_key, true)?.as_deref() == Some("true");
                 if present {
-                    let value = self.get(value_key, true)?.ok_or_else(|| {
-                        GitPersonaError::dependency(format!(
-                            "binding backup for {managed} is incomplete"
-                        ))
-                    })?;
-                    self.set(managed, &value)?;
+                    match self.get(value_key, true)? {
+                        Some(value) => self.set(managed, &value)?,
+                        // Backup flag says the value existed, but the backup
+                        // itself is missing (manual tampering). Fall back to
+                        // unsetting rather than trapping the repository in a
+                        // permanently bound state.
+                        None => self.unset(managed)?,
+                    }
                 } else {
                     self.unset(managed)?;
                 }

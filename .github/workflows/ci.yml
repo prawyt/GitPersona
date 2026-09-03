@@ -21,6 +21,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Remove one-shot CI label
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -33,7 +34,8 @@ jobs:
     if: >-
       always() &&
       (github.event_name == 'push' ||
-      needs.consume-run-ci.result == 'success')
+      needs.consume-run-ci.result == 'success' ||
+      needs.consume-run-ci.result == 'skipped')
     strategy:
       fail-fast: false
       matrix:

@@ -82,26 +82,68 @@ fn run_command(
         .map_err(|error| {
             GitPersonaError::dependency(format!("could not run {program}: {error}"))
         })?;
+
+    // Drain stdout and stderr in background threads to prevent pipe deadlock.
+    // If a subprocess writes more than the OS pipe buffer capacity (~64KB),
+    // it blocks on write while the parent blocks on wait — a classic deadlock.
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+
+    let stdout_thread = std::thread::spawn(move || {
+        stdout_pipe.map_or_else(String::new, |mut pipe| {
+            let mut buf = String::new();
+            let _ = std::io::Read::read_to_string(&mut pipe, &mut buf);
+            buf
+        })
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        stderr_pipe.map_or_else(String::new, |mut pipe| {
+            let mut buf = String::new();
+            let _ = std::io::Read::read_to_string(&mut pipe, &mut buf);
+            buf
+        })
+    });
+
     let status = child.wait_timeout(timeout).map_err(|error| {
         GitPersonaError::dependency(format!("could not wait for {program}: {error}"))
     })?;
+
     if status.is_none() {
-        let _ = child.kill();
-        let _ = child.wait();
+        kill_process_tree(&mut child);
+        // Allow the reader threads to finish after process is killed.
+        let _ = stdout_thread.join();
+        let _ = stderr_thread.join();
         return Ok(ProcessOutput {
             code: None,
             stdout: String::new(),
             stderr: format!("{program} timed out after {} seconds", timeout.as_secs()),
         });
     }
-    let output = child.wait_with_output().map_err(|error| {
-        GitPersonaError::dependency(format!("could not collect {program} output: {error}"))
-    })?;
+
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = stderr_thread.join().unwrap_or_default();
+
     Ok(ProcessOutput {
-        code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        code: status.and_then(|s| s.code()),
+        stdout,
+        stderr,
     })
+}
+
+fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        // On Windows, child.kill() only terminates the top-level process.
+        // /F = forcefully terminate, /T = terminate process and all child processes.
+        let pid = child.id();
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 pub fn os_args(values: &[&str]) -> Vec<OsString> {

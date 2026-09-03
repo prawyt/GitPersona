@@ -26,11 +26,11 @@ impl RemoteInfo {
 }
 
 pub fn parse_repository(input: &str, hostname: &str) -> Result<RemoteInfo, GitPersonaError> {
-    if input.contains("://")
-        || Regex::new(r"^(?:[^@]+@)?[^:]+:.+$")
-            .expect("valid regex")
-            .is_match(input)
-    {
+    if input.contains("://") || {
+        static SCP_PATTERN: std::sync::LazyLock<Regex> =
+            std::sync::LazyLock::new(|| Regex::new(r"^(?:[^@]+@)?[^:]+:.+$").expect("valid regex"));
+        SCP_PATTERN.is_match(input)
+    } {
         return parse_remote(input);
     }
     build(input, RemoteProtocol::Https, hostname.to_string(), input)
@@ -66,8 +66,10 @@ pub fn parse_remote(input: &str) -> Result<RemoteInfo, GitPersonaError> {
             .to_string();
         return build(input, protocol, hostname, url.path());
     }
-    let scp = Regex::new(r"^(?:[^@]+@)?(?P<host>[^:]+):(?P<path>.+)$").expect("valid regex");
-    if let Some(captures) = scp.captures(input) {
+    static SCP: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^(?:[^@]+@)?(?P<host>[^:]+):(?P<path>.+)$").expect("valid regex")
+    });
+    if let Some(captures) = SCP.captures(input) {
         return build(
             input,
             RemoteProtocol::Ssh,

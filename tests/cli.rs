@@ -1,6 +1,5 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::prelude::*;
-#[cfg(not(windows))]
 use std::env;
 use std::{fs, process::Command};
 
@@ -40,6 +39,19 @@ fn profile_add_and_list_json() {
     cargo_bin_cmd!()
         .env("GITPERSONA_CONFIG", &config)
         .args(["profile", "list", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("alice-work"));
+
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["profile", "rename", "work", "work-renamed"])
+        .assert()
+        .success();
+
+    cargo_bin_cmd!()
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["profile", "show", "work-renamed", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains("alice-work"));
@@ -526,7 +538,6 @@ fn directory_rule_applies_profile_through_isolated_global_config() {
 }
 
 #[test]
-#[cfg(not(windows))]
 fn profile_import_reads_repository_and_structured_gh_identity() {
     let temp = tempfile::tempdir().unwrap();
     let repo = initialized_repo(temp.path());
@@ -624,17 +635,39 @@ fn git_value(repo: &std::path::Path, key: &str) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
-#[cfg(not(windows))]
 fn fake_gh(parent: &std::path::Path) -> std::path::PathBuf {
     let bin = parent.join("fake-bin");
     fs::create_dir(&bin).unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    let path = bin.join("gh");
-    fs::write(
-        &path,
-        "#!/bin/sh\nprintf '%s\\n' '{\"hosts\":{\"github.com\":[{\"login\":\"imported-user\",\"active\":true,\"state\":\"success\"}]}}'\n",
-    )
-    .unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = bin.join("gh");
+        fs::write(
+            &path,
+            "#!/bin/sh\nprintf '%s\\n' '{\"hosts\":{\"github.com\":[{\"login\":\"imported-user\",\"active\":true,\"state\":\"success\"}]}}'\n",
+        )
+        .unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    #[cfg(windows)]
+    {
+        let src = bin.join("gh.rs");
+        fs::write(
+            &src,
+            "fn main() { println!(\"{}\", r#\"{\"hosts\":{\"github.com\":[{\"login\":\"imported-user\",\"active\":true,\"state\":\"success\"}]}}\"#); }",
+        )
+        .unwrap();
+        assert!(
+            Command::new("rustc")
+                .args([
+                    src.to_str().unwrap(),
+                    "-o",
+                    bin.join("gh.exe").to_str().unwrap()
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
     bin
 }

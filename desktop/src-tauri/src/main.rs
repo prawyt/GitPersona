@@ -20,7 +20,7 @@ use tauri::{AppHandle, State, ipc::Channel};
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(Default)]
-struct ScanState(Arc<AtomicBool>);
+struct ScanState(Mutex<Option<Arc<AtomicBool>>>);
 
 #[derive(Default)]
 struct ApprovedPaths(Mutex<HashSet<PathBuf>>);
@@ -55,13 +55,20 @@ async fn remove_profile(name: String) -> Result<(), ApiError> {
 }
 
 #[tauri::command]
+async fn rename_profile(old_name: String, new_name: String) -> Result<NamedProfile, ApiError> {
+    service()?
+        .rename_profile(&old_name, &new_name)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 async fn import_profile_preview(
     repository: PathBuf,
     approved: State<'_, ApprovedPaths>,
 ) -> Result<ProfileDraft, ApiError> {
-    ensure_approved(&repository, &approved)?;
+    let resolved = ensure_approved(&repository, &approved)?;
     service()?
-        .import_preview(&repository, "origin")
+        .import_preview(&resolved, "origin")
         .map_err(Into::into)
 }
 
@@ -83,12 +90,13 @@ fn choose_folder(
                 })
                 .and_then(|path| {
                     let canonical = std::fs::canonicalize(&path).map_err(ApiError::from_io)?;
+                    let normalized = strip_unc_prefix(&canonical);
                     approved
                         .0
                         .lock()
                         .map_err(|_| ApiError::internal("approved-folder state is unavailable"))?
-                        .insert(canonical.clone());
-                    Ok(canonical)
+                        .insert(normalized.clone());
+                    Ok(normalized)
                 })
         })
         .transpose()
@@ -120,8 +128,10 @@ async fn add_repository_root(
     path: PathBuf,
     approved: State<'_, ApprovedPaths>,
 ) -> Result<PathBuf, ApiError> {
-    ensure_session_approved(&path, &approved)?;
-    service()?.add_repository_root(&path).map_err(Into::into)
+    let resolved = ensure_session_approved(&path, &approved)?;
+    service()?
+        .add_repository_root(&resolved)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -134,11 +144,20 @@ async fn scan_repositories(
     state: State<'_, ScanState>,
     events: Channel<RepositoryScanEvent>,
 ) -> Result<Vec<RepositorySummary>, ApiError> {
-    state.0.store(false, Ordering::Relaxed);
-    let cancel = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut guard = state
+            .0
+            .lock()
+            .map_err(|_| ApiError::internal("scan-state lock poisoned"))?;
+        if let Some(prev) = guard.replace(cancel.clone()) {
+            prev.store(true, Ordering::Relaxed);
+        }
+    }
+    let cancel_for_worker = cancel.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         service()?
-            .scan_repositories(&cancel, |event| {
+            .scan_repositories(&cancel_for_worker, |event| {
                 let _ = events.send(event);
             })
             .map_err(ApiError::from)
@@ -149,12 +168,27 @@ async fn scan_repositories(
         message: error.to_string(),
         exit_code: 3,
         field: None,
-    })?
+    })?;
+
+    let Ok(mut guard) = state.0.lock() else {
+        return result;
+    };
+    if guard
+        .as_ref()
+        .is_some_and(|current| Arc::ptr_eq(current, &cancel))
+    {
+        *guard = None;
+    }
+
+    result
 }
 
 #[tauri::command]
 fn cancel_repository_scan(state: State<'_, ScanState>) {
-    state.0.store(true, Ordering::Relaxed);
+    let Ok(guard) = state.0.lock() else { return };
+    if let Some(cancel) = guard.as_ref() {
+        cancel.store(true, Ordering::Relaxed);
+    }
 }
 
 #[tauri::command]
@@ -163,9 +197,9 @@ async fn inspect_repository(
     network: bool,
     approved: State<'_, ApprovedPaths>,
 ) -> Result<RepositoryStatus, ApiError> {
-    ensure_approved(&repository, &approved)?;
+    let resolved = ensure_approved(&repository, &approved)?;
     service()?
-        .inspect_repository(&repository, "origin", network)
+        .inspect_repository(&resolved, "origin", network)
         .map_err(Into::into)
 }
 
@@ -176,9 +210,9 @@ async fn bind_repository(
     force: bool,
     approved: State<'_, ApprovedPaths>,
 ) -> Result<(), ApiError> {
-    ensure_approved(&repository, &approved)?;
+    let resolved = ensure_approved(&repository, &approved)?;
     service()?
-        .bind_repository(&repository, &profile, "origin", force)
+        .bind_repository(&resolved, &profile, "origin", force)
         .map_err(Into::into)
 }
 
@@ -187,10 +221,8 @@ async fn unbind_repository(
     repository: PathBuf,
     approved: State<'_, ApprovedPaths>,
 ) -> Result<(), ApiError> {
-    ensure_approved(&repository, &approved)?;
-    service()?
-        .unbind_repository(&repository)
-        .map_err(Into::into)
+    let resolved = ensure_approved(&repository, &approved)?;
+    service()?.unbind_repository(&resolved).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -224,6 +256,7 @@ fn main() {
             list_profiles,
             create_profile,
             update_profile,
+            rename_profile,
             remove_profile,
             import_profile_preview,
             choose_folder,
@@ -248,15 +281,16 @@ fn main() {
 fn ensure_session_approved(
     path: &PathBuf,
     approved: &State<'_, ApprovedPaths>,
-) -> Result<(), ApiError> {
+) -> Result<PathBuf, ApiError> {
     let canonical = std::fs::canonicalize(path).map_err(ApiError::from_io)?;
+    let normalized = strip_unc_prefix(&canonical);
     if approved
         .0
         .lock()
         .map_err(|_| ApiError::internal("approved-folder state is unavailable"))?
-        .contains(&canonical)
+        .contains(&normalized)
     {
-        Ok(())
+        Ok(normalized)
     } else {
         Err(ApiError {
             kind: "usage".into(),
@@ -267,22 +301,26 @@ fn ensure_session_approved(
     }
 }
 
-fn ensure_approved(path: &PathBuf, approved: &State<'_, ApprovedPaths>) -> Result<(), ApiError> {
+fn ensure_approved(
+    path: &PathBuf,
+    approved: &State<'_, ApprovedPaths>,
+) -> Result<PathBuf, ApiError> {
     let canonical = std::fs::canonicalize(path).map_err(ApiError::from_io)?;
+    let normalized = strip_unc_prefix(&canonical);
     if approved
         .0
         .lock()
         .map_err(|_| ApiError::internal("approved-folder state is unavailable"))?
-        .contains(&canonical)
+        .contains(&normalized)
     {
-        return Ok(());
+        return Ok(normalized);
     }
     if service()?
         .repository_roots()?
         .iter()
-        .any(|root| canonical.starts_with(root))
+        .any(|root| normalized.starts_with(strip_unc_prefix(root)))
     {
-        return Ok(());
+        return Ok(normalized);
     }
     Err(ApiError {
         kind: "usage".into(),
@@ -290,6 +328,20 @@ fn ensure_approved(path: &PathBuf, approved: &State<'_, ApprovedPaths>) -> Resul
         exit_code: 2,
         field: Some("repository".into()),
     })
+}
+
+/// Strip the Windows extended-length path prefix (`\\?\`) so that
+/// `starts_with` comparisons work uniformly whether both sides were
+/// canonicalized or not.
+fn strip_unc_prefix(path: &std::path::Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    path.to_path_buf()
 }
 
 trait DesktopApiError {

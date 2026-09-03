@@ -1,10 +1,7 @@
 use crate::{error::GitPersonaError, git::Git, process::Runner};
-use std::{fs, path::PathBuf};
+use std::{env, fs, path::PathBuf};
 
 const MARKER: &str = "# Managed by GitPersona v0.1";
-const PRE_COMMIT: &str =
-    "#!/bin/sh\n# Managed by GitPersona v0.1\nexec gitpersona check --hook pre-commit\n";
-const PRE_PUSH: &str = "#!/bin/sh\n# Managed by GitPersona v0.1\nexec gitpersona check --hook pre-push --remote \"${1:-origin}\"\n";
 
 pub struct HookManager<'a> {
     git: Git<'a>,
@@ -41,8 +38,13 @@ impl<'a> HookManager<'a> {
         fs::create_dir_all(parent).map_err(|e| {
             GitPersonaError::dependency(format!("could not create hooks directory: {e}"))
         })?;
-        write_hook(&commit, PRE_COMMIT)?;
-        if let Err(error) = write_hook(&push, PRE_PUSH) {
+        let exe = resolve_executable()?;
+        let pre_commit = format!("#!/bin/sh\n{MARKER}\nexec {exe} check --hook pre-commit\n");
+        let pre_push = format!(
+            "#!/bin/sh\n{MARKER}\nexec {exe} check --hook pre-push --remote \"${{1:-origin}}\"\n"
+        );
+        write_hook(&commit, &pre_commit)?;
+        if let Err(error) = write_hook(&push, &pre_push) {
             let _ = fs::remove_file(&commit);
             return Err(error);
         }
@@ -53,21 +55,21 @@ impl<'a> HookManager<'a> {
         let (commit, push) = self.paths()?;
         Ok(format!(
             "pre-commit: {}\npre-push:   {}",
-            hook_state(&commit, PRE_COMMIT),
-            hook_state(&push, PRE_PUSH)
+            hook_state(&commit),
+            hook_state(&push)
         ))
     }
 
     pub fn uninstall(&self) -> Result<(), GitPersonaError> {
         let (commit, push) = self.paths()?;
-        for (path, expected) in [(&commit, PRE_COMMIT), (&push, PRE_PUSH)] {
+        for path in [&commit, &push] {
             if path.exists() {
                 let contents = fs::read_to_string(path).map_err(|e| {
                     GitPersonaError::dependency(format!("could not read {}: {e}", path.display()))
                 })?;
-                if contents != expected || !contents.contains(MARKER) {
+                if !contents.contains(MARKER) {
                     return Err(GitPersonaError::usage(format!(
-                        "{} is not an exact GitPersona-managed hook; refusing to remove it",
+                        "{} is not a GitPersona-managed hook; refusing to remove it",
                         path.display()
                     )));
                 }
@@ -101,11 +103,23 @@ fn write_hook(path: &std::path::Path, contents: &str) -> Result<(), GitPersonaEr
     Ok(())
 }
 
-fn hook_state(path: &std::path::Path, expected: &str) -> &'static str {
+fn hook_state(path: &std::path::Path) -> &'static str {
     match fs::read_to_string(path) {
-        Ok(contents) if contents == expected => "installed",
+        Ok(contents) if contents.contains(MARKER) => "installed",
         Ok(_) => "occupied by another hook",
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => "not installed",
         Err(_) => "unreadable",
     }
+}
+
+fn resolve_executable() -> Result<String, GitPersonaError> {
+    let exe = env::current_exe().map_err(|e| {
+        GitPersonaError::dependency(format!(
+            "could not determine the gitpersona executable path: {e}"
+        ))
+    })?;
+    let canonical = std::fs::canonicalize(&exe).unwrap_or(exe);
+    let display = canonical.to_string_lossy();
+    // Shell-escape the path for use in a sh script
+    Ok(format!("'{}'", display.replace('\'', "'\\''")))
 }

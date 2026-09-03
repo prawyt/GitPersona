@@ -2,7 +2,7 @@ name: Release desktop
 
 on:
   push:
-    tags: ["v0.5.*"]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

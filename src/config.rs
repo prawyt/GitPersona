@@ -1,7 +1,7 @@
 use crate::error::GitPersonaError;
 use clap::ValueEnum;
 use directories::{BaseDirs, ProjectDirs};
-use fs2::FileExt;
+use fs4::fs_std::FileExt;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -96,6 +96,20 @@ impl Profile {
             if value.trim().is_empty() {
                 return Err(GitPersonaError::usage(format!("{label} cannot be empty")));
             }
+            if value.contains('\n') || value.contains('\r') || value.contains('\0') {
+                return Err(GitPersonaError::usage(format!(
+                    "{label} cannot contain newlines or null bytes"
+                )));
+            }
+        }
+        if self
+            .github_user
+            .chars()
+            .any(|c| c.is_whitespace() || c == '/' || c == '\\' || c == '"')
+        {
+            return Err(GitPersonaError::usage(
+                "GitHub user cannot contain whitespace or slashes",
+            ));
         }
         validate_hostname(&self.hostname)?;
         if self
@@ -112,12 +126,15 @@ impl Profile {
         {
             return Err(GitPersonaError::usage("allowed owners cannot be empty"));
         }
-        if self
-            .signing_key
-            .as_ref()
-            .is_some_and(|key| key.trim().is_empty())
-        {
-            return Err(GitPersonaError::usage("signing key cannot be empty"));
+        if let Some(key) = &self.signing_key {
+            if key.trim().is_empty() {
+                return Err(GitPersonaError::usage("signing key cannot be empty"));
+            }
+            if key.contains('\n') || key.contains('\r') || key.contains('\0') {
+                return Err(GitPersonaError::usage(
+                    "signing key cannot contain newlines or null bytes",
+                ));
+            }
         }
         if self.require_signing && self.signing_key.is_none() {
             return Err(GitPersonaError::usage(
@@ -139,7 +156,10 @@ impl Profile {
         }
         if self.signing_format == SigningFormat::Ssh {
             if let Some(key) = &self.signing_key {
-                if !key.starts_with("key::") {
+                if !key.starts_with("key::")
+                    && !key.starts_with("ssh-")
+                    && !key.starts_with("ecdsa-")
+                {
                     let expanded = expand_path(Path::new(key))?;
                     if !expanded.is_file() {
                         return Err(GitPersonaError::usage(format!(
@@ -155,8 +175,10 @@ impl Profile {
 }
 
 pub fn validate_profile_name(name: &str) -> Result<(), GitPersonaError> {
-    let pattern = Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$").expect("valid regex");
-    if pattern.is_match(name) {
+    static PATTERN: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$").expect("valid regex")
+    });
+    if PATTERN.is_match(name) {
         Ok(())
     } else {
         Err(GitPersonaError::usage(
@@ -287,6 +309,8 @@ impl ConfigStore {
         fs::create_dir_all(parent).map_err(|error| {
             GitPersonaError::dependency(format!("could not create {}: {error}", parent.display()))
         })?;
+        // The lock file is intentionally kept on disk across operations.
+        // Deleting it creates a TOCTOU race where concurrent processes can lock different inodes.
         let lock = OpenOptions::new()
             .create(true)
             .read(true)
@@ -328,6 +352,8 @@ impl ConfigStore {
         fs::create_dir_all(parent).map_err(|e| {
             GitPersonaError::dependency(format!("could not create {}: {e}", parent.display()))
         })?;
+        // The lock file is intentionally kept on disk across operations.
+        // Deleting it creates a TOCTOU race where concurrent processes can lock different inodes.
         let lock_path = parent.join("config.lock");
         let lock = OpenOptions::new()
             .create(true)
@@ -424,5 +450,55 @@ mod tests {
         let path = dir.path().join("config.toml");
         fs::write(&path, "schema_version = 99\n").unwrap();
         assert!(ConfigStore::at(path).load().is_err());
+    }
+
+    #[test]
+    fn rejects_control_chars_and_whitespace_in_profiles() {
+        let base = Profile {
+            github_user: "alice".into(),
+            git_name: "Alice".into(),
+            git_email: "alice@example.com".into(),
+            hostname: "github.com".into(),
+            ssh_key: None,
+            allowed_owners: vec![],
+            signing_key: None,
+            signing_format: SigningFormat::Openpgp,
+            require_signing: false,
+        };
+
+        let mut newline_user = base.clone();
+        newline_user.github_user = "alice\nadmin".into();
+        assert!(newline_user.validate().is_err());
+
+        let mut space_user = base.clone();
+        space_user.github_user = "alice admin".into();
+        assert!(space_user.validate().is_err());
+
+        let mut slash_user = base.clone();
+        slash_user.github_user = "alice/admin".into();
+        assert!(slash_user.validate().is_err());
+
+        let mut crlf_email = base.clone();
+        crlf_email.git_email = "alice@example.com\r\ncc:bad@example.com".into();
+        assert!(crlf_email.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_literal_ssh_public_key_for_signing() {
+        let profile = Profile {
+            github_user: "alice".into(),
+            git_name: "Alice".into(),
+            git_email: "alice@example.com".into(),
+            hostname: "github.com".into(),
+            ssh_key: None,
+            allowed_owners: vec![],
+            signing_key: Some(
+                "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI12345 alice@example.com".into(),
+            ),
+            signing_format: SigningFormat::Ssh,
+            require_signing: true,
+        };
+        assert!(profile.validate().is_ok());
+        assert!(profile.validate_local_resources().is_ok());
     }
 }
