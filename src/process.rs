@@ -74,12 +74,6 @@ fn run_command(
     args: &[OsString],
     timeout: Duration,
 ) -> Result<ProcessOutput, GitPersonaError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-
     let mut child = command
         .args(args)
         .stdout(Stdio::piped())
@@ -137,21 +131,13 @@ fn run_command(
 }
 
 fn kill_process_tree(child: &mut std::process::Child) {
-    let pid = child.id();
     #[cfg(windows)]
     {
-        // /F = forcefully terminate, /T = terminate process and all child processes
+        // On Windows, child.kill() only terminates the top-level process.
+        // /F = forcefully terminate, /T = terminate process and all child processes.
+        let pid = child.id();
         let _ = Command::new("taskkill")
             .args(["/F", "/T", "/PID", &pid.to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    #[cfg(unix)]
-    {
-        // Negative PID sends SIGKILL to the entire process group
-        let _ = Command::new("kill")
-            .args(["-9", &format!("-{}", pid)])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
