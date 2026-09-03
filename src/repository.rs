@@ -12,6 +12,11 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+/// Bounds on a single root's walk. Without them a deep or pathological tree
+/// stalls the desktop scan, which only the cancel flag can interrupt.
+const MAX_SCAN_DEPTH: usize = 24;
+const MAX_SCANNED_DIRECTORIES: usize = 20_000;
+
 const SKIPPED_DIRECTORIES: &[&str] = &[
     ".git",
     "node_modules",
@@ -86,24 +91,24 @@ pub fn scan_roots(
             });
             continue;
         }
-        let mut stack = vec![root.clone()];
+        let mut stack = vec![(root.clone(), 0usize)];
         let mut visited = HashSet::new();
-        while let Some(directory) = stack.pop() {
+        let mut exhausted = false;
+        while let Some((directory, depth)) = stack.pop() {
             if cancel.load(Ordering::Relaxed) {
                 break;
             }
+            if visited.len() >= MAX_SCANNED_DIRECTORIES {
+                exhausted = true;
+                break;
+            }
+            // `canonicalize` resolves symlinks, so a link into an already
+            // visited tree collapses onto the same key and is skipped here.
             let canonical = match fs::canonicalize(&directory) {
                 Ok(path) => path,
                 Err(_) => continue,
             };
             if !visited.insert(path_key(&canonical)) {
-                continue;
-            }
-            let metadata = match fs::symlink_metadata(&canonical) {
-                Ok(metadata) => metadata,
-                Err(_) => continue,
-            };
-            if metadata.file_type().is_symlink() {
                 continue;
             }
             let marker = canonical.join(".git");
@@ -139,8 +144,18 @@ pub fn scan_roots(
                 {
                     continue;
                 }
-                stack.push(path);
+                if depth < MAX_SCAN_DEPTH {
+                    stack.push((path, depth + 1));
+                }
             }
+        }
+        if exhausted {
+            emit(RepositoryScanEvent::RootUnavailable {
+                root: root.clone(),
+                message: format!(
+                    "stopped after {MAX_SCANNED_DIRECTORIES} directories; narrow the approved root"
+                ),
+            });
         }
     }
     repositories.sort_by_key(|repository| path_key(&repository.path));

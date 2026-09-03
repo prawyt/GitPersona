@@ -671,3 +671,80 @@ fn fake_gh(parent: &std::path::Path) -> std::path::PathBuf {
     }
     bin
 }
+
+#[test]
+fn http_remote_fails_check_as_cleartext_transport() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let repo = initialized_repo(temp.path());
+    add_profile(&repo, &config);
+    assert!(
+        Command::new("git")
+            .args([
+                "remote",
+                "add",
+                "origin",
+                "http://github.com/alice-work/project.git"
+            ])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["bind", "work"])
+        .assert()
+        .success();
+
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .args(["check", "--json"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("\"transport\""))
+        .stdout(predicate::str::contains("cleartext HTTP"));
+}
+
+#[test]
+fn git_dir_in_the_environment_does_not_redirect_a_binding() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("config.toml");
+    let repo = initialized_repo(temp.path());
+    add_profile(&repo, &config);
+
+    // A decoy repository that GIT_DIR would otherwise redirect writes into.
+    let decoy = temp.path().join("decoy");
+    fs::create_dir(&decoy).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&decoy)
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    cargo_bin_cmd!()
+        .current_dir(&repo)
+        .env("GITPERSONA_CONFIG", &config)
+        .env("GIT_DIR", decoy.join(".git"))
+        .env("GIT_WORK_TREE", &decoy)
+        .args(["bind", "work"])
+        .assert()
+        .success();
+
+    assert_eq!(git_value(&repo, "gitpersona.profile"), "work");
+    assert_eq!(git_value(&repo, "user.email"), "work@example.com");
+    let leaked = Command::new("git")
+        .args(["config", "--local", "--get", "gitpersona.profile"])
+        .current_dir(&decoy)
+        .output()
+        .unwrap();
+    assert!(
+        !leaked.status.success(),
+        "binding leaked into the GIT_DIR decoy repository"
+    );
+}

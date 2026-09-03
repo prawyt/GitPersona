@@ -85,7 +85,7 @@ pub fn execute(
         OsString::from(&clone_url),
         destination.clone().into_os_string(),
     ];
-    let output = runner.run("git", &clone_args, CLONE_TIMEOUT)?;
+    let output = runner.run_git(&clone_args, CLONE_TIMEOUT)?;
     if !output.success() {
         restore_account(
             &github,

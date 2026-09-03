@@ -12,9 +12,10 @@ use std::{
 };
 
 const TIMEOUT: Duration = Duration::from_secs(15);
-const MANAGED_KEYS: &[&str] = &[
-    "gitpersona.profile",
-    "gitpersona.version",
+/// GitPersona's own bookkeeping keys, removed wholesale on unbind.
+const BINDING_KEYS: &[&str] = &["gitpersona.profile", "gitpersona.version"];
+/// Git's identity keys that a binding writes and a snapshot must capture.
+const IDENTITY_KEYS: &[&str] = &[
     "user.name",
     "user.email",
     "core.sshCommand",
@@ -74,8 +75,8 @@ impl<'a> Git<'a> {
 
     fn run(&self, args: &[OsString]) -> Result<crate::process::ProcessOutput, GitPersonaError> {
         match &self.cwd {
-            Some(cwd) => self.runner.run_in("git", args, cwd, TIMEOUT),
-            None => self.runner.run("git", args, TIMEOUT),
+            Some(cwd) => self.runner.run_git_in(args, cwd, TIMEOUT),
+            None => self.runner.run_git(args, TIMEOUT),
         }
     }
 
@@ -196,21 +197,29 @@ impl<'a> Git<'a> {
                 path.display()
             )));
         }
+        // Escape the four characters that keep their meaning inside a
+        // double-quoted POSIX sh word. `!` is deliberately not escaped: it is
+        // only special to interactive history expansion, and `\!` inside double
+        // quotes survives literally, which would corrupt the key path.
         let escaped = path
             .to_string_lossy()
             .replace('\\', "\\\\")
             .replace('"', "\\\"")
             .replace('$', "\\$")
-            .replace('`', "\\`")
-            .replace('!', "\\!");
+            .replace('`', "\\`");
         Ok(format!("ssh -i \"{escaped}\" -o IdentitiesOnly=yes"))
     }
 
+    /// Whether Git is configured to delegate credentials for `hostname` to the
+    /// GitHub CLI. `scheme` must be the scheme of the remote actually in use:
+    /// Git scopes `credential.<url>.helper` by scheme, so checking the `https`
+    /// key for an `http` remote reports configuration that does not apply.
     pub fn has_compatible_credential_helper(
         &self,
+        scheme: &str,
         hostname: &str,
     ) -> Result<bool, GitPersonaError> {
-        let scoped = format!("credential.https://{hostname}.helper");
+        let scoped = format!("credential.{scheme}://{hostname}.helper");
         let values = self
             .get_all(&scoped, false)?
             .into_iter()
@@ -354,7 +363,7 @@ impl<'a> Git<'a> {
                     self.unset(managed)?;
                 }
             }
-            for key in MANAGED_KEYS.iter().take(2) {
+            for key in BINDING_KEYS {
                 self.unset(key)?;
             }
             for (_, present, value) in BACKUP_KEYS {
@@ -392,8 +401,9 @@ impl<'a> Git<'a> {
 }
 
 fn transaction_keys() -> Vec<String> {
-    let mut keys = MANAGED_KEYS
+    let mut keys = BINDING_KEYS
         .iter()
+        .chain(IDENTITY_KEYS)
         .map(|key| (*key).to_string())
         .collect::<Vec<_>>();
     for (_, present, value) in BACKUP_KEYS {
@@ -426,5 +436,28 @@ mod tests {
         let command = Git::expected_ssh_command(&profile).unwrap();
         assert!(command.contains("\""));
         assert!(command.contains("IdentitiesOnly=yes"));
+    }
+
+    #[test]
+    fn ssh_command_leaves_exclamation_marks_intact() {
+        // `\!` inside a double-quoted sh word survives literally, so escaping
+        // it would hand ssh a key path that does not exist.
+        let dir = tempfile::tempdir().unwrap();
+        let key = dir.path().join("my!key");
+        std::fs::write(&key, "key").unwrap();
+        let profile = Profile {
+            github_user: "a".into(),
+            git_name: "A".into(),
+            git_email: "a@x".into(),
+            hostname: "github.com".into(),
+            ssh_key: Some(key.clone()),
+            allowed_owners: vec![],
+            signing_key: None,
+            signing_format: crate::config::SigningFormat::Openpgp,
+            require_signing: false,
+        };
+        let command = Git::expected_ssh_command(&profile).unwrap();
+        assert!(command.contains("my!key"), "{command}");
+        assert!(!command.contains(r"\!"), "{command}");
     }
 }
