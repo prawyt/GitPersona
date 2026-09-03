@@ -12,6 +12,11 @@ checks, and troubleshooting.
 
 ## Install
 
+Prebuilt Windows desktop artifacts are published on the
+[Releases](../../releases) page, each with a `.sha256` for verification. They
+are unsigned, so Windows warns on first run; see
+[SECURITY.md](SECURITY.md#release-verification).
+
 Install a Rust toolchain, then build from source:
 
 ```console
@@ -156,7 +161,8 @@ Repository binding and rollback metadata live only in local Git configuration. `
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cd desktop && npm ci && npm run lint && npm test && npm run build
+cargo deny check
+cd desktop && npm ci && npm run lint && npm run format:check && npm test && npm run build
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations.
