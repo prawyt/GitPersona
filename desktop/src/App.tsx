@@ -551,7 +551,7 @@ function ProfileFields({
       <label>
         Signing format
         <select
-          value={profile.signing_format}
+          value={profile.signing_format ?? "openpgp"}
           onChange={(e) => field("signing_format", e.target.value)}
         >
           <option value="openpgp">OpenPGP</option>
@@ -564,7 +564,7 @@ function ProfileFields({
           value={profile.signing_key ?? ""}
           onChange={(e) => optionalField("signing_key", e.target.value)}
           placeholder={
-            profile.signing_format === "ssh"
+            (profile.signing_format ?? "openpgp") === "ssh"
               ? "Public key path or key:: value"
               : "OpenPGP key ID"
           }
@@ -790,7 +790,7 @@ function Profiles({
                   <dt>Commit signing</dt>
                   <dd>
                     {current.profile.require_signing
-                      ? `${current.profile.signing_format.toUpperCase()} required`
+                      ? `${(current.profile.signing_format ?? "openpgp").toUpperCase()} required`
                       : "Not required"}
                   </dd>
                 </div>
@@ -1366,11 +1366,11 @@ function Ssh({
           <dl className="identity-grid">
             <div>
               <dt>Format</dt>
-              <dd>{profile.profile.signing_format.toUpperCase()}</dd>
+              <dd>{(profile?.profile.signing_format ?? "openpgp").toUpperCase()}</dd>
             </div>
             <div>
               <dt>Signing key</dt>
-              <dd>{profile.profile.signing_key ?? "Not configured"}</dd>
+              <dd>{profile?.profile.signing_key ?? "Not configured"}</dd>
             </div>
           </dl>
         </div>
