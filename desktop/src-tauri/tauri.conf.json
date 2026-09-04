@@ -13,14 +13,16 @@
     "security": {
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: data:; style-src 'self'; font-src 'self' data:; script-src 'self'"
     },
-    "windows": [{
-      "title": "GitPersona",
-      "width": 1180,
-      "height": 760,
-      "minWidth": 720,
-      "minHeight": 560,
-      "resizable": true
-    }]
+    "windows": [
+      {
+        "title": "GitPersona",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 560,
+        "resizable": true
+      }
+    ]
   },
   "bundle": {
     "active": true,

@@ -23,6 +23,32 @@ impl ProcessOutput {
     }
 }
 
+/// Environment variables that would silently redirect Git away from the
+/// repository GitPersona was told to act on, or forge the values it reads back.
+///
+/// `GIT_DIR`, `GIT_WORK_TREE`, and friends take precedence over the working
+/// directory, so a bind would write to a repository the user never selected.
+/// `GIT_CONFIG_COUNT`/`KEY`/`VALUE` inject configuration into every invocation,
+/// which can make a check report an identity that is not the one on disk.
+/// `GIT_SSH_COMMAND` overrides the `core.sshCommand` a profile manages.
+///
+/// `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` are deliberately NOT removed:
+/// they are the documented way to point Git at an alternate global config, and
+/// honouring them is what lets a caller sandbox GitPersona's `--global`
+/// includeIf writes. Removing them would break that isolation rather than
+/// protect anything — the user set them for their own shell.
+const GIT_ENVIRONMENT_OVERRIDES: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_SSH_COMMAND",
+];
+
 pub trait Runner: Send + Sync {
     fn run(
         &self,
@@ -40,6 +66,27 @@ pub trait Runner: Send + Sync {
     ) -> Result<ProcessOutput, GitPersonaError> {
         let _ = cwd;
         self.run(program, args, timeout)
+    }
+
+    /// Run `git` with the ambient environment scrubbed of the variables that
+    /// would redirect it away from the intended repository or configuration
+    /// file. Every `git` invocation must go through this or [`Runner::run_git_in`].
+    fn run_git(
+        &self,
+        args: &[OsString],
+        timeout: Duration,
+    ) -> Result<ProcessOutput, GitPersonaError> {
+        self.run("git", args, timeout)
+    }
+
+    /// Directory-scoped counterpart to [`Runner::run_git`].
+    fn run_git_in(
+        &self,
+        args: &[OsString],
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<ProcessOutput, GitPersonaError> {
+        self.run_in("git", args, cwd, timeout)
     }
 }
 
@@ -66,7 +113,42 @@ impl Runner for SystemRunner {
         command.current_dir(cwd);
         run_command(command, program, args, timeout)
     }
+
+    fn run_git(
+        &self,
+        args: &[OsString],
+        timeout: Duration,
+    ) -> Result<ProcessOutput, GitPersonaError> {
+        run_command(git_command(), "git", args, timeout)
+    }
+
+    fn run_git_in(
+        &self,
+        args: &[OsString],
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<ProcessOutput, GitPersonaError> {
+        let mut command = git_command();
+        command.current_dir(cwd);
+        run_command(command, "git", args, timeout)
+    }
 }
+
+fn git_command() -> Command {
+    let mut command = Command::new("git");
+    for variable in GIT_ENVIRONMENT_OVERRIDES {
+        command.env_remove(variable);
+    }
+    // GIT_CONFIG_COUNT is removed above; the indexed pairs it governs must go
+    // too, or a stale GIT_CONFIG_KEY_0 could be picked up by a later count.
+    for index in 0..MAX_GIT_CONFIG_PAIRS {
+        command.env_remove(format!("GIT_CONFIG_KEY_{index}"));
+        command.env_remove(format!("GIT_CONFIG_VALUE_{index}"));
+    }
+    command
+}
+
+const MAX_GIT_CONFIG_PAIRS: usize = 64;
 
 fn run_command(
     mut command: Command,

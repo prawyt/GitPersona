@@ -70,8 +70,8 @@ npm run tauri build -- --bundles msi,nsis
 The command compiles the application once and creates both installers:
 
 ```text
-target\release\bundle\nsis\GitPersona_0.5.0_x64-setup.exe
-target\release\bundle\msi\GitPersona_0.5.0_x64_en-US.msi
+target\release\bundle\nsis\GitPersona_0.6.0_x64-setup.exe
+target\release\bundle\msi\GitPersona_0.6.0_x64_en-US.msi
 ```
 
 The version in each filename comes from `desktop\src-tauri\tauri.conf.json`.
@@ -81,17 +81,22 @@ The compiled portable executable also remains at
 Public release installers should be code-signed. Local unsigned artifacts are
 suitable for development and testing but may trigger Windows security prompts.
 
+Released artifacts are currently unsigned as well, so Windows SmartScreen warns
+on first run and macOS Gatekeeper refuses to open the bundle without an explicit
+override. Until signing certificates are in place, the published SHA-256 is the
+verification path - see [SECURITY.md](../SECURITY.md#release-verification).
+
 ## GitHub release artifacts
 
 The current release workflow builds Windows artifacts only. It can be started
 from the GitHub Actions **Release desktop** page with **Run workflow**, or by
-pushing a version tag matching `v0.5.*`.
+pushing a version tag matching `v0.6.*`.
 
 The workflow creates a draft GitHub Release containing the NSIS setup EXE, MSI,
 and a renamed portable executable such as:
 
 ```text
-GitPersona_0.5.0_windows_x86_64.exe
+GitPersona_0.6.0_windows_x86_64.exe
 ```
 
 The portable EXE includes a matching `.sha256` file for download verification.
@@ -102,8 +107,8 @@ Review the draft release and its artifacts before publishing it. A release tag
 can be created after the intended commit has been merged:
 
 ```powershell
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 ## Rebuild after source changes

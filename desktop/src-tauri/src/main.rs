@@ -284,12 +284,11 @@ fn ensure_session_approved(
 ) -> Result<PathBuf, ApiError> {
     let canonical = std::fs::canonicalize(path).map_err(ApiError::from_io)?;
     let normalized = strip_unc_prefix(&canonical);
-    if approved
+    let session = approved
         .0
         .lock()
-        .map_err(|_| ApiError::internal("approved-folder state is unavailable"))?
-        .contains(&normalized)
-    {
+        .map_err(|_| ApiError::internal("approved-folder state is unavailable"))?;
+    if authorize(&normalized, &session, &[]) {
         Ok(normalized)
     } else {
         Err(ApiError {
@@ -307,19 +306,17 @@ fn ensure_approved(
 ) -> Result<PathBuf, ApiError> {
     let canonical = std::fs::canonicalize(path).map_err(ApiError::from_io)?;
     let normalized = strip_unc_prefix(&canonical);
-    if approved
-        .0
-        .lock()
-        .map_err(|_| ApiError::internal("approved-folder state is unavailable"))?
-        .contains(&normalized)
     {
-        return Ok(normalized);
+        let session = approved
+            .0
+            .lock()
+            .map_err(|_| ApiError::internal("approved-folder state is unavailable"))?;
+        if authorize(&normalized, &session, &[]) {
+            return Ok(normalized);
+        }
     }
-    if service()?
-        .repository_roots()?
-        .iter()
-        .any(|root| normalized.starts_with(strip_unc_prefix(root)))
-    {
+    let roots = service()?.repository_roots()?;
+    if authorize(&normalized, &HashSet::new(), &roots) {
         return Ok(normalized);
     }
     Err(ApiError {
@@ -328,6 +325,20 @@ fn ensure_approved(
         exit_code: 2,
         field: Some("repository".into()),
     })
+}
+
+/// The desktop app's only path-authorization boundary: a canonical, UNC-stripped
+/// `path` is allowed when the user picked it in this session, or when it lies
+/// under a persisted approved root.
+///
+/// `Path::starts_with` compares whole components, so a sibling directory whose
+/// name merely shares a prefix with an approved root (`/work-other` against
+/// `/work`) is not authorized by it.
+fn authorize(path: &std::path::Path, session: &HashSet<PathBuf>, roots: &[PathBuf]) -> bool {
+    session.contains(path)
+        || roots
+            .iter()
+            .any(|root| path.starts_with(strip_unc_prefix(root)))
 }
 
 /// Strip the Windows extended-length path prefix (`\\?\`) so that
@@ -365,5 +376,80 @@ impl DesktopApiError for ApiError {
             exit_code: 3,
             field: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(paths: &[&str]) -> HashSet<PathBuf> {
+        paths.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn a_session_pick_authorizes_only_that_exact_folder() {
+        let session = set(&["/home/a/work"]);
+        assert!(authorize(
+            std::path::Path::new("/home/a/work"),
+            &session,
+            &[]
+        ));
+        assert!(!authorize(
+            std::path::Path::new("/home/a/other"),
+            &session,
+            &[]
+        ));
+    }
+
+    #[test]
+    fn an_approved_root_authorizes_repositories_beneath_it() {
+        let roots = vec![PathBuf::from("/home/a/work")];
+        assert!(authorize(
+            std::path::Path::new("/home/a/work/project"),
+            &HashSet::new(),
+            &roots
+        ));
+        assert!(authorize(
+            std::path::Path::new("/home/a/work"),
+            &HashSet::new(),
+            &roots
+        ));
+    }
+
+    #[test]
+    fn a_sibling_sharing_a_name_prefix_is_rejected() {
+        // The failure mode a string `starts_with` would have: /work-secret must
+        // not be authorized by an approval of /work.
+        let roots = vec![PathBuf::from("/home/a/work")];
+        assert!(!authorize(
+            std::path::Path::new("/home/a/work-secret"),
+            &HashSet::new(),
+            &roots
+        ));
+        assert!(!authorize(
+            std::path::Path::new("/home/a/work-secret/project"),
+            &HashSet::new(),
+            &roots
+        ));
+    }
+
+    #[test]
+    fn nothing_is_authorized_without_a_pick_or_a_root() {
+        assert!(!authorize(
+            std::path::Path::new("/home/a/work"),
+            &HashSet::new(),
+            &[]
+        ));
+    }
+
+    #[test]
+    fn a_parent_of_an_approved_root_is_rejected() {
+        let roots = vec![PathBuf::from("/home/a/work")];
+        assert!(!authorize(
+            std::path::Path::new("/home/a"),
+            &HashSet::new(),
+            &roots
+        ));
     }
 }

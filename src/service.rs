@@ -409,11 +409,16 @@ impl<'a> GitPersonaService<'a> {
     }
 
     pub fn remove_repository_root(&self, root: &Path) -> Result<(), GitPersonaError> {
+        // Roots are stored canonicalised by `add_repository_root`, so a caller
+        // passing a relative path, a `~` prefix, or a trailing separator would
+        // otherwise never match. Fall back to the raw path when the directory
+        // no longer exists, so a deleted root can still be removed.
+        let target = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         self.store.update(|config| {
             let before = config.repository_roots.len();
             config
                 .repository_roots
-                .retain(|existing| !paths_equal(existing, root));
+                .retain(|existing| !paths_equal(existing, &target) && !paths_equal(existing, root));
             if config.repository_roots.len() == before {
                 return Err(GitPersonaError::usage(
                     "approved repository root does not exist",
