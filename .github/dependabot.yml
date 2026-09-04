@@ -19,6 +19,8 @@ updates:
       npm-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+      vite:
+        patterns: ["vite", "@vitejs/*"]
 
   - package-ecosystem: github-actions
     directory: "/"
