@@ -10,7 +10,7 @@ export interface Profile {
   ssh_key?: string;
   allowed_owners: string[];
   signing_key?: string;
-  signing_format: SigningFormat;
+  signing_format?: SigningFormat;
   require_signing: boolean;
 }
 export interface NamedProfile {

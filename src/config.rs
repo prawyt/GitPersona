@@ -55,7 +55,7 @@ pub struct Profile {
     pub allowed_owners: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signing_key: Option<String>,
-    #[serde(default, skip_serializing_if = "is_default_signing_format")]
+    #[serde(default)]
     pub signing_format: SigningFormat,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub require_signing: bool,
@@ -76,10 +76,6 @@ impl SigningFormat {
             Self::Ssh => "ssh",
         }
     }
-}
-
-fn is_default_signing_format(value: &SigningFormat) -> bool {
-    *value == SigningFormat::default()
 }
 
 fn default_hostname() -> String {
