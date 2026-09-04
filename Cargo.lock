@@ -1305,7 +1305,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "toml 0.9.12+spec-1.1.0",
+ "toml 1.1.4+spec-1.1.0",
  "url",
  "wait-timeout",
 ]
