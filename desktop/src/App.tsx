@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowRightLeft,
@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "./api";
+import { demoProfiles, demoRepos } from "./demo";
 import type {
   ApiError,
   DoctorReport,
@@ -53,76 +54,6 @@ const emptyProfile: Profile = {
   signing_format: "openpgp",
   require_signing: false,
 };
-const demoProfiles: NamedProfile[] = [
-  {
-    name: "personal",
-    profile: {
-      ...emptyProfile,
-      github_user: "mira-dev",
-      git_name: "Mira Chen",
-      git_email: "mira@users.noreply.github.com",
-      allowed_owners: ["mira-dev"],
-      ssh_key: "~/.ssh/id_ed25519_personal",
-      signing_key: "~/.ssh/id_ed25519_personal.pub",
-      signing_format: "ssh",
-      require_signing: true,
-    },
-  },
-  {
-    name: "opensource",
-    profile: {
-      ...emptyProfile,
-      github_user: "mchen-oss",
-      git_name: "Mira Chen",
-      git_email: "oss@mira.dev",
-      allowed_owners: ["rust-lang", "tauri-apps"],
-    },
-  },
-];
-const demoRepos: RepositorySummary[] = [
-  {
-    name: "gitpersona",
-    path: "C:\\dev\\gitpersona",
-    bound_profile: "personal",
-    git_name: "Mira Chen",
-    git_email: "mira@users.noreply.github.com",
-    status: "bound",
-    remote: {
-      protocol: "ssh",
-      hostname: "github.com",
-      owner: "mira-dev",
-      repository: "gitpersona",
-    },
-  },
-  {
-    name: "tauri-plugin-audit",
-    path: "C:\\dev\\tauri-plugin-audit",
-    bound_profile: "opensource",
-    git_name: "Mira Chen",
-    git_email: "oss@mira.dev",
-    status: "drifted",
-    detail: "Git email differs from the profile",
-    remote: {
-      protocol: "https",
-      hostname: "github.com",
-      owner: "tauri-apps",
-      repository: "tauri-plugin-audit",
-    },
-  },
-  {
-    name: "scratchpad",
-    path: "C:\\dev\\scratchpad",
-    git_name: "Mira Chen",
-    git_email: "mira@users.noreply.github.com",
-    status: "unbound",
-    remote: {
-      protocol: "ssh",
-      hostname: "github.com",
-      owner: "mira-dev",
-      repository: "scratchpad",
-    },
-  },
-];
 
 function errorMessage(error: unknown) {
   return (
@@ -132,7 +63,10 @@ function errorMessage(error: unknown) {
 }
 
 export default function App() {
-  const demo = new URLSearchParams(location.search).has("demo");
+  // Gated on DEV so demo mode cannot be reached in a shipped build, where a
+  // stray `?demo` would otherwise replace real state with fixtures.
+  const demo =
+    import.meta.env.DEV && new URLSearchParams(location.search).has("demo");
   const [view, setView] = useState<View>("repositories");
   const [profiles, setProfiles] = useState<NamedProfile[]>(
     demo ? demoProfiles : [],
@@ -172,10 +106,15 @@ export default function App() {
     void load();
   }, [load]);
   const selected = repositories.find((repo) => repo.path === selectedRepo);
-  const signal = (message: string) => {
-    setNotice(message);
-    window.setTimeout(() => setNotice(""), 3500);
-  };
+  // The dismissal timer is owned by an effect so that a notice raised just
+  // before unmount does not fire setNotice on a torn-down component, and so a
+  // second notice restarts the countdown rather than inheriting the first one's.
+  const signal = useCallback((message: string) => setNotice(message), []);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 3500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   return (
     <div className="app-shell">
@@ -185,7 +124,7 @@ export default function App() {
             <GitBranch size={17} />
           </span>
           <span>GitPersona</span>
-          <span className="version">v0.5</span>
+          <span className="version">v{__APP_VERSION__}</span>
         </div>
         <div className="local-only">
           <ShieldCheck size={15} /> Local configuration only
@@ -612,7 +551,7 @@ function ProfileFields({
       <label>
         Signing format
         <select
-          value={profile.signing_format}
+          value={profile.signing_format ?? "openpgp"}
           onChange={(e) => field("signing_format", e.target.value)}
         >
           <option value="openpgp">OpenPGP</option>
@@ -625,7 +564,7 @@ function ProfileFields({
           value={profile.signing_key ?? ""}
           onChange={(e) => optionalField("signing_key", e.target.value)}
           placeholder={
-            profile.signing_format === "ssh"
+            (profile.signing_format ?? "openpgp") === "ssh"
               ? "Public key path or key:: value"
               : "OpenPGP key ID"
           }
@@ -851,7 +790,7 @@ function Profiles({
                   <dt>Commit signing</dt>
                   <dd>
                     {current.profile.require_signing
-                      ? `${current.profile.signing_format.toUpperCase()} required`
+                      ? `${(current.profile.signing_format ?? "openpgp").toUpperCase()} required`
                       : "Not required"}
                   </dd>
                 </div>
@@ -1427,11 +1366,13 @@ function Ssh({
           <dl className="identity-grid">
             <div>
               <dt>Format</dt>
-              <dd>{profile.profile.signing_format.toUpperCase()}</dd>
+              <dd>
+                {(profile?.profile.signing_format ?? "openpgp").toUpperCase()}
+              </dd>
             </div>
             <div>
               <dt>Signing key</dt>
-              <dd>{profile.profile.signing_key ?? "Not configured"}</dd>
+              <dd>{profile?.profile.signing_key ?? "Not configured"}</dd>
             </div>
           </dl>
         </div>
@@ -1514,9 +1455,19 @@ function Status({
     },
     [selected, demo, setError],
   );
+  const inspectRef = useRef(inspect);
   useEffect(() => {
-    void inspect(false);
-  }, [selected?.path]);
+    inspectRef.current = inspect;
+  }, [inspect]);
+  // Re-inspect when the selection moves to a different repository. `inspect`
+  // is intentionally not a dependency: it is rebuilt whenever the `selected`
+  // object identity changes, which happens on every parent refresh, and
+  // depending on it would re-run the network-free check on each of those.
+  const selectedPath = selected?.path;
+  useEffect(() => {
+    if (!selectedPath) return;
+    void inspectRef.current(false);
+  }, [selectedPath]);
   return (
     <section>
       <PageHeader

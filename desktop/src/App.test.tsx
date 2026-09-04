@@ -165,6 +165,30 @@ describe("GitPersona app shell", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders SSH & Signing without crashing when signing_format is omitted", async () => {
+    vi.mocked(api.profiles).mockResolvedValue([
+      {
+        name: "work-opensource-BitKiln",
+        profile: {
+          github_user: "BitKiln",
+          git_name: "Prabhakar G",
+          git_email: "prabhakar.bitkiln@gmail.com",
+          hostname: "github.com-BitKiln",
+          allowed_owners: ["BitKiln"],
+          require_signing: false,
+        },
+      },
+    ]);
+    render(<App />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "SSH & Signing" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "SSH & Signing" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("OPENPGP")).toBeInTheDocument();
+  });
+
   it("renders repository status checks without crashing", async () => {
     window.history.replaceState({}, "", "/?demo=1");
     render(<App />);

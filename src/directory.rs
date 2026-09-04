@@ -15,7 +15,11 @@ use std::{
 };
 
 const TIMEOUT: Duration = Duration::from_secs(15);
-const MARKER: &str = "# Managed by GitPersona v0.4";
+/// Marker written at the head of every generated profile fragment, and the
+/// only signal that authorises deleting one. Version-free on purpose: fragments
+/// written by earlier releases begin `"# Managed by GitPersona v0.4"`, which
+/// still matches this prefix, so they remain removable.
+const MARKER: &str = "# Managed by GitPersona";
 
 #[derive(Serialize)]
 struct RuleView {
@@ -70,11 +74,15 @@ pub fn rename_profile(
     let old_value = git_path(&old_fragment);
     let new_value = git_path(&new_fragment);
 
+    // The caller (`GitPersonaService::rename_profile`) has already committed the
+    // rename to the config, so the rules to repoint are the ones now carrying
+    // the NEW name. Filtering on `old_name` here matched nothing, which left the
+    // stale include pointing at a fragment that was then never deleted.
     let config = store.load()?;
     let rules_to_update: Vec<DirectoryRule> = config
         .directories
         .iter()
-        .filter(|rule| rule.profile == old_name)
+        .filter(|rule| rule.profile == new_name)
         .cloned()
         .collect();
 
@@ -103,7 +111,12 @@ fn sync_all(store: &ConfigStore) -> Result<(), GitPersonaError> {
         .map(|rule| rule.profile.as_str())
         .collect::<BTreeSet<_>>();
     for name in names {
-        write_fragment(store, name, &config.profiles[name])?;
+        let profile = config.profiles.get(name).ok_or_else(|| {
+            GitPersonaError::usage(format!(
+                "directory rule references missing profile '{name}'"
+            ))
+        })?;
+        write_fragment(store, name, profile)?;
     }
     Ok(())
 }
@@ -371,11 +384,7 @@ fn paths_equal(left: &Path, right: &Path) -> bool {
 }
 
 fn global_values(runner: &dyn Runner, key: &str) -> Result<Vec<String>, GitPersonaError> {
-    let output = runner.run(
-        "git",
-        &os_args(&["config", "--global", "--get-all", key]),
-        TIMEOUT,
-    )?;
+    let output = runner.run_git(&os_args(&["config", "--global", "--get-all", key]), TIMEOUT)?;
     match output.code {
         Some(0) => Ok(output.stdout.lines().map(str::to_string).collect()),
         Some(1) => Ok(Vec::new()),
@@ -387,8 +396,7 @@ fn global_values(runner: &dyn Runner, key: &str) -> Result<Vec<String>, GitPerso
 }
 
 fn global_add(runner: &dyn Runner, key: &str, value: &str) -> Result<(), GitPersonaError> {
-    let output = runner.run(
-        "git",
+    let output = runner.run_git(
         &os_args(&["config", "--global", "--add", key, value]),
         TIMEOUT,
     )?;
@@ -403,8 +411,7 @@ fn global_add(runner: &dyn Runner, key: &str, value: &str) -> Result<(), GitPers
 }
 
 fn global_remove(runner: &dyn Runner, key: &str, value: &str) -> Result<(), GitPersonaError> {
-    let output = runner.run(
-        "git",
+    let output = runner.run_git(
         &os_args(&[
             "config",
             "--global",

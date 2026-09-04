@@ -9,3 +9,8 @@
 /desktop/src-tauri/icons/ios/
 /desktop/src-tauri/icons/.gitkeep
 *.tmp
+
+# Built desktop binaries. Releases are published by .github/workflows/release.yml;
+# the repository is not a distribution channel.
+/gitpersona-desktop.exe
+/gitpersona-desktop.exe.sha256

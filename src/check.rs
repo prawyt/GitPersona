@@ -222,6 +222,18 @@ fn inspect_remote(
         Some(&remote.hostname),
         "remote hostname",
     );
+    if matches!(remote.protocol, RemoteProtocol::Http) {
+        checks.push(item(
+            "transport",
+            CheckStatus::Failure,
+            Some("https or ssh".into()),
+            Some("http".into()),
+            format!(
+                "remote uses cleartext HTTP; credentials and commits would travel unencrypted. Repoint it at {}",
+                remote.as_url(RemoteProtocol::Https, &remote.hostname)
+            ),
+        ));
+    }
     if profile.allowed_owners.is_empty() {
         checks.push(item(
             "owner",
@@ -338,7 +350,11 @@ fn inspect_remote(
             )),
         },
         RemoteProtocol::Https | RemoteProtocol::Http => {
-            match git.has_compatible_credential_helper(&profile.hostname) {
+            let scheme = match remote.protocol {
+                RemoteProtocol::Http => "http",
+                _ => "https",
+            };
+            match git.has_compatible_credential_helper(scheme, &profile.hostname) {
                 Ok(true) => checks.push(item(
                     "credential_helper",
                     CheckStatus::Ok,

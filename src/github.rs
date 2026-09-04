@@ -30,11 +30,22 @@ impl<'a> GitHub<'a> {
         if output.code.is_none() {
             return Err(GitPersonaError::dependency("GitHub CLI status timed out"));
         }
+        if !output.success() {
+            // `gh auth status` exits non-zero when no account is authenticated
+            // for the host. Report its own diagnostic instead of letting the
+            // empty body surface as a JSON parse failure.
+            let detail = output.stderr.trim();
+            return Err(GitPersonaError::dependency(if detail.is_empty() {
+                format!("GitHub CLI reported no authenticated account on {hostname}")
+            } else {
+                format!("GitHub CLI status failed for {hostname}: {detail}")
+            }));
+        }
         let value: Value = serde_json::from_str(&output.stdout).map_err(|e| {
             GitPersonaError::dependency(format!("GitHub CLI returned invalid JSON: {e}"))
         })?;
         let mut accounts = Vec::new();
-        collect_accounts(&value, &mut accounts);
+        collect_accounts(&value, 0, &mut accounts);
         accounts.sort();
         accounts.dedup();
         Ok(accounts)
@@ -97,7 +108,14 @@ impl<'a> GitHub<'a> {
     }
 }
 
-fn collect_accounts(value: &Value, output: &mut Vec<Account>) {
+/// Bound on how deep `gh`'s JSON is walked. The real shape nests three levels;
+/// the cap keeps a malformed or hostile document from overflowing the stack.
+const MAX_JSON_DEPTH: usize = 32;
+
+fn collect_accounts(value: &Value, depth: usize, output: &mut Vec<Account>) {
+    if depth >= MAX_JSON_DEPTH {
+        return;
+    }
     match value {
         Value::Object(map) => {
             if let Some(login) = map.get("login").and_then(Value::as_str) {
@@ -113,12 +131,12 @@ fn collect_accounts(value: &Value, output: &mut Vec<Account>) {
                 });
             }
             for child in map.values() {
-                collect_accounts(child, output);
+                collect_accounts(child, depth + 1, output);
             }
         }
         Value::Array(values) => {
             for child in values {
-                collect_accounts(child, output);
+                collect_accounts(child, depth + 1, output);
             }
         }
         _ => {}
@@ -149,7 +167,7 @@ mod tests {
     fn extracts_accounts_from_gh_shape() {
         let value: Value = serde_json::json!({"hosts":{"github.com":[{"login":"alice","active":true,"state":"success"},{"login":"bob","active":false,"state":"error"}]}});
         let mut accounts = vec![];
-        collect_accounts(&value, &mut accounts);
+        collect_accounts(&value, 0, &mut accounts);
         assert_eq!(
             accounts,
             vec![

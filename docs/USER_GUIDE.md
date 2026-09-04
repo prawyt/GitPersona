@@ -224,7 +224,7 @@ repository-local values captured before the first bind.
 
 ### Status is empty
 
-- Install a current build of GitPersona v0.5 containing the Status data-contract
+- Install a current build of GitPersona v0.6 containing the Status data-contract
   fix.
 - Add and scan a repository, then select it before opening Status.
 - If inspection fails, read the persistent error message and run Diagnostics.

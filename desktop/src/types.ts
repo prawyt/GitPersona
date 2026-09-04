@@ -1,3 +1,6 @@
+// These types mirror the `serde` representations in `src/api.rs`,
+// `src/remote.rs`, and `src/check.rs`. They are hand-maintained: change a Rust
+// type that crosses the Tauri IPC boundary and you must change this file too.
 export type SigningFormat = "openpgp" | "ssh";
 export interface Profile {
   github_user: string;
@@ -7,15 +10,17 @@ export interface Profile {
   ssh_key?: string;
   allowed_owners: string[];
   signing_key?: string;
-  signing_format: SigningFormat;
+  signing_format?: SigningFormat;
   require_signing: boolean;
 }
 export interface NamedProfile {
   name: string;
   profile: Profile;
 }
+/** Mirrors `RemoteInfo` / `RemoteProtocol` in `src/remote.rs`. */
 export interface RemoteInfo {
-  protocol: "ssh" | "https";
+  url: string;
+  protocol: "ssh" | "https" | "http";
   hostname: string;
   owner: string;
   repository: string;
@@ -49,13 +54,16 @@ export interface CheckItem {
   status: "ok" | "warning" | "failure" | "unverified";
   message: string;
 }
+/** Mirrors `CheckReport` in `src/check.rs`. */
+export interface CheckReport {
+  repository: string;
+  profile?: string;
+  remote?: RemoteInfo;
+  overall: "ok" | "warning" | "failure";
+  checks: CheckItem[];
+}
 export interface RepositoryStatus {
-  report: {
-    repository: string;
-    profile?: string;
-    overall: "ok" | "warning" | "failure";
-    checks: CheckItem[];
-  };
+  report: CheckReport;
   network_checked: boolean;
 }
 export interface DependencyStatus {

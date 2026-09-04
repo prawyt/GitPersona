@@ -1,7 +1,16 @@
 use crate::{error::GitPersonaError, git::Git, process::Runner};
 use std::{env, fs, path::PathBuf};
 
-const MARKER: &str = "# Managed by GitPersona v0.1";
+/// Marker written into hooks GitPersona creates. It is deliberately
+/// version-free: `uninstall` and `status` recognise a hook by this line, so a
+/// version-stamped marker would orphan every hook written by an earlier
+/// release. Earlier releases wrote `"# Managed by GitPersona v0.1"`, which this
+/// marker is a prefix of, so those hooks stay recognisable and removable.
+const MARKER: &str = "# Managed by GitPersona";
+
+fn is_managed(contents: &str) -> bool {
+    contents.contains(MARKER)
+}
 
 pub struct HookManager<'a> {
     git: Git<'a>,
@@ -67,7 +76,7 @@ impl<'a> HookManager<'a> {
                 let contents = fs::read_to_string(path).map_err(|e| {
                     GitPersonaError::dependency(format!("could not read {}: {e}", path.display()))
                 })?;
-                if !contents.contains(MARKER) {
+                if !is_managed(&contents) {
                     return Err(GitPersonaError::usage(format!(
                         "{} is not a GitPersona-managed hook; refusing to remove it",
                         path.display()
@@ -87,9 +96,26 @@ impl<'a> HookManager<'a> {
 }
 
 fn write_hook(path: &std::path::Path, contents: &str) -> Result<(), GitPersonaError> {
-    fs::write(path, contents).map_err(|e| {
+    // `create_new` closes the gap between the caller's `exists()` check and
+    // this write: a hook that appears in between must never be overwritten.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                GitPersonaError::usage(format!(
+                    "hook already exists; refusing to replace {}",
+                    path.display()
+                ))
+            } else {
+                GitPersonaError::dependency(format!("could not write {}: {e}", path.display()))
+            }
+        })?;
+    std::io::Write::write_all(&mut file, contents.as_bytes()).map_err(|e| {
         GitPersonaError::dependency(format!("could not write {}: {e}", path.display()))
     })?;
+    drop(file);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -105,7 +131,7 @@ fn write_hook(path: &std::path::Path, contents: &str) -> Result<(), GitPersonaEr
 
 fn hook_state(path: &std::path::Path) -> &'static str {
     match fs::read_to_string(path) {
-        Ok(contents) if contents.contains(MARKER) => "installed",
+        Ok(contents) if is_managed(&contents) => "installed",
         Ok(_) => "occupied by another hook",
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => "not installed",
         Err(_) => "unreadable",
