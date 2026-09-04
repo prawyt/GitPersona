@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [develop]
   pull_request:
     types: [opened, labeled, synchronize, reopened]
 
@@ -34,8 +34,7 @@ jobs:
     if: >-
       always() &&
       (github.event_name == 'push' ||
-      needs.consume-run-ci.result == 'success' ||
-      needs.consume-run-ci.result == 'skipped')
+      needs.consume-run-ci.result == 'success')
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +46,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
