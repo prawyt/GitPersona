@@ -176,7 +176,7 @@ describe("GitPersona app shell", () => {
           hostname: "github.com-BitKiln",
           allowed_owners: ["BitKiln"],
           require_signing: false,
-        } as any,
+        },
       },
     ]);
     render(<App />);

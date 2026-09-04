@@ -1366,7 +1366,9 @@ function Ssh({
           <dl className="identity-grid">
             <div>
               <dt>Format</dt>
-              <dd>{(profile?.profile.signing_format ?? "openpgp").toUpperCase()}</dd>
+              <dd>
+                {(profile?.profile.signing_format ?? "openpgp").toUpperCase()}
+              </dd>
             </div>
             <div>
               <dt>Signing key</dt>
