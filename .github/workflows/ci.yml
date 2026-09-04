@@ -77,8 +77,24 @@ jobs:
       - run: cargo test --workspace --all-features
       - name: Audit npm dependencies
         if: runner.os == 'Linux'
-        run: npm audit --audit-level=high
         working-directory: desktop
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if out=$(npm audit --audit-level=high 2>&1); then
+              echo "$out"
+              exit 0
+            fi
+            echo "$out"
+            if ! grep -q 'audit endpoint returned an error' <<<"$out"; then
+              echo "npm audit reported vulnerabilities at or above the high threshold."
+              exit 1
+            fi
+            echo "npm audit registry endpoint unavailable (attempt $attempt of 3)."
+            sleep $((attempt * 15))
+          done
+          echo "npm audit registry endpoint stayed unreachable after 3 attempts."
+          exit 1
       - name: Audit Rust dependencies
         if: runner.os == 'Linux'
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
